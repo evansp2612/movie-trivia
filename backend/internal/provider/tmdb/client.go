@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -12,11 +13,13 @@ const baseURL = "https://api.themoviedb.org/3"
 
 type Client struct {
 	apiKey string
+	v4     bool
 	http   *http.Client
 }
 
 func NewClient(apiKey string) *Client {
-	return &Client{apiKey: apiKey, http: &http.Client{Timeout: 15 * time.Second}}
+	v4 := len(apiKey) > 60 && len(apiKey) >= 2 && apiKey[:2] == "ey"
+	return &Client{apiKey: apiKey, v4: v4, http: &http.Client{Timeout: 15 * time.Second}}
 }
 
 type Movie struct {
@@ -32,8 +35,7 @@ type pagedResponse struct {
 }
 
 // FetchPool calls /movie/popular and /movie/top_rated, pages 1-2,
-// keeping English-language movies only. The caller dedupes by TMDB ID
-// and enforces rate limiting (50ms between OMDb/image calls).
+// keeping English-language movies only.
 func (c *Client) FetchPool(ctx context.Context) ([]Movie, error) {
 	var out []Movie
 	seen := map[int]bool{}
@@ -53,6 +55,21 @@ func (c *Client) FetchPool(ctx context.Context) ([]Movie, error) {
 		}
 	}
 	return out, nil
+}
+
+type ExternalIDs struct {
+	IMDBID string `json:"imdb_id"`
+}
+
+// FetchIMDBID resolves the movie's IMDb ID (tt...) via TMDB's
+// /movie/{id}/external_ids. Callers use it for OMDb rating lookups.
+func (c *Client) FetchIMDBID(ctx context.Context, movieID int) (string, error) {
+	var res ExternalIDs
+	url := fmt.Sprintf("%s/movie/%d/external_ids", baseURL, movieID)
+	if err := c.get(ctx, url, &res); err != nil {
+		return "", fmt.Errorf("tmdb: external ids for %d: %w", movieID, err)
+	}
+	return res.IMDBID, nil
 }
 
 type Images struct {
@@ -79,11 +96,21 @@ func (c *Client) FetchTextlessPoster(ctx context.Context, movieID int) (string, 
 }
 
 func (c *Client) get(ctx context.Context, url string, out any) error {
+	if !c.v4 {
+		// v3 API key goes in the query string.
+		if strings.Contains(url, "?") {
+			url += "&api_key=" + c.apiKey
+		} else {
+			url += "?api_key=" + c.apiKey
+		}
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	if c.v4 {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 	req.Header.Set("Accept", "application/json")
 	resp, err := c.http.Do(req)
 	if err != nil {

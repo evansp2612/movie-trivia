@@ -15,15 +15,33 @@ import (
 	"movie-trivia/internal/config"
 	"movie-trivia/internal/cron"
 	httphandler "movie-trivia/internal/handler/http"
+	"movie-trivia/internal/provider/omdb"
+	"movie-trivia/internal/provider/tmdb"
 	"movie-trivia/internal/repository/postgres"
 	rediscache "movie-trivia/internal/repository/redis"
 	"movie-trivia/internal/usecase"
 
+	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"github.com/redis/go-redis/v9"
 )
 
 func main() {
+	// Load backend/.env (if present). Real environment variables take
+	// precedence, so docker-compose's env_file/environment blocks still win.
+	// Each path is tried independently: godotenv.Load aborts on the first
+	// missing file, which would skip the one that exists.
+	loaded := false
+	for _, path := range []string{".env", "../.env"} {
+		if err := godotenv.Load(path); err == nil {
+			loaded = true
+			break
+		}
+	}
+	if !loaded {
+		log.Printf("config: no .env loaded (falling back to OS environment)")
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("config: %v", err)
@@ -60,8 +78,12 @@ func main() {
 	ratingCache := rediscache.NewRatingCache(rdb)
 	dailyLock := rediscache.NewDailyLock(rdb)
 
+	// External API clients
+	tmdbClient := tmdb.NewClient(cfg.TMDBAPIKey)
+	omdbClient := omdb.NewClient(cfg.OMDBAPIKey)
+
 	// Usecases
-	poolUC := usecase.NewPoolUsecase(poolCache, ratingCache)
+	poolUC := usecase.NewPoolUsecase(poolCache, ratingCache, tmdbClient, omdbClient)
 	gameUC := usecase.NewGameUsecase(poolUC)
 	freeplayUC := usecase.NewFreeplayUsecase(sessions, gameUC)
 	dailyUC := usecase.NewDailyUsecase(sessions, dailyGames, entries, gameUC, cfg.PoolRefreshLoc)
@@ -70,8 +92,8 @@ func main() {
 
 	// Background jobs: master pool refresh (every 4h) and daily
 	// game generation (once per calendar day in POOL_REFRESH_TZ).
-	scheduler := cron.NewScheduler()
-	scheduler.Start()
+	scheduler := cron.NewScheduler(poolUC, gameUC, dailyGames, dailyLock, cfg.PoolRefreshLoc)
+	scheduler.Start(ctx)
 
 	// HTTP
 	router := httphandler.New(dailyUC, freeplayUC, poolUC, leaderboardUC, adminUC, dailyLock, cfg.AllowedOrigin, sessions)
