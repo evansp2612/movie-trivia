@@ -155,6 +155,8 @@ function showResult({ correct, points, detail, onNext }) {
     loadRound();
   });
   root.appendChild(next);
+  // Bring the result into view (the reveal content above can be tall).
+  line.scrollIntoView({ behavior: "smooth", block: "center" });
   onNext?.();
 }
 
@@ -221,12 +223,12 @@ function revealHigherLower(round, res, chosen) {
     const pill = card.querySelector(".rating-pill");
     pill.textContent = `★ ${ratings[i]}`;
     pill.hidden = false;
-    if (ratings[i] >= ratings[1 - i]) {
-      pill.classList.add("win");
-      card.classList.add(i === chosen ? "correct" : "wrong");
-    } else {
-      card.classList.add(i === chosen ? "wrong" : "correct");
-    }
+    const isWinner = i === 0 ? ratings[0] > ratings[1] : ratings[1] > ratings[0];
+    if (isWinner) pill.classList.add("win");
+    // The winner's card is emerald, the loser's rose — regardless of
+    // which card the player tapped.
+    card.classList.add(i === chosen ? (res.correct ? "correct" : "wrong")
+      : (res.correct ? "wrong" : "correct"));
   });
   showResult({ correct: res.correct, points: res.points, detail: null });
 }
@@ -244,7 +246,7 @@ async function renderBlurred(round) {
     <div class="search-wrap">
       <input type="text" id="guess-input" placeholder="Type a movie title…" autocomplete="off" />
       <ul class="ac-list" id="ac-list" hidden></ul>
-      <button class="btn btn--primary" id="blur-submit">Submit guess</button>
+      <button class="btn btn--primary" id="blur-submit">Submit</button>
     </div>`;
   const dots = document.getElementById("dots");
   for (let i = 0; i < 5; i++) {

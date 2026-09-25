@@ -45,8 +45,8 @@ const poolPages = 6
 // filter; vote_count.gte=500 keeps the rating-ranked set to movies with
 // meaningful votes.
 var discoverSets = []string{
-	"sort_by=popularity.desc",
-	"sort_by=vote_average.desc&vote_count.gte=500",
+	"with_original_language=en&sort_by=popularity.desc",
+	"with_original_language=en&sort_by=vote_average.desc&vote_count.gte=500",
 }
 
 // FetchPool queries /discover/movie (pages 1-6 per set, English-language

@@ -147,12 +147,18 @@ main {
 }
 
 .game__hud {
+  position: sticky;
+  top: 0.5rem;
+  z-index: 20;
   display: flex;
   justify-content: space-between;
+  align-items: center;
   font-weight: 800;
+  font-size: 1rem;
   padding: 0.75rem 1rem;
   background: var(--surface);
   border-radius: var(--radius);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
 .game__stage {
@@ -205,7 +211,7 @@ main {
 .hl-card h3 {
   font-weight: 800;
   margin: 0.75rem 0 0.15rem;
-  font-size: 1.05rem;
+  font-size: 1.1rem;
 }
 
 .hl-card .year {
@@ -348,7 +354,8 @@ main {
 
 .round-prompt {
   font-weight: 800;
-  font-size: 1.3rem;
+  font-size: 1.4rem;
+  letter-spacing: -0.01em;
   margin: 1rem 0 1.5rem;
 }
 
@@ -687,4 +694,37 @@ main {
 
 .admin-home:hover {
   color: var(--primary);
+}
+
+/* ---------- Small screens ---------- */
+@media (max-width: 480px) {
+  .landing__card {
+    padding: 1.5rem 1rem;
+  }
+
+  .game__hud {
+    font-size: 0.9rem;
+    padding: 0.6rem 0.8rem;
+  }
+
+  .hl-board {
+    gap: 0.5rem;
+  }
+
+  .hl-card {
+    padding: 0.6rem;
+  }
+
+  .hl-card h3 {
+    font-size: 0.9rem;
+  }
+
+  .answer-card {
+    padding: 0.8rem 1rem;
+    font-size: 1rem;
+  }
+
+  .round-prompt {
+    font-size: 1.2rem;
+  }
 }

@@ -88,7 +88,7 @@ func (u *GameUsecase) BuildRounds(ctx context.Context) ([]domain.Round, error) {
 		return nil, err
 	}
 	types := u.ShuffledBag()
-	yearMin, yearMax := poolYearBounds(pool)
+	currentYear := time.Now().Year()
 
 	// Partition the pool by round-suitability. The pool is a raw
 	// candidate store; rounds may only use movies that satisfy their
@@ -110,7 +110,6 @@ func (u *GameUsecase) BuildRounds(ctx context.Context) ([]domain.Round, error) {
 		log.Printf("BuildRounds: pool has %d dated movies, need %d", len(dated), yrCount)
 		return nil, domain.ErrPoolEmpty
 	}
-
 	// next draws a movie from one partition; the shared used-set keeps
 	// every movie at most once per game across all rounds.
 	used := map[int]bool{}
@@ -126,6 +125,8 @@ func (u *GameUsecase) BuildRounds(ctx context.Context) ([]domain.Round, error) {
 	}
 
 	rounds := make([]domain.Round, 0, len(types))
+	// Guess-the-year slider bounds are fixed: 1900 → the current year.
+	yearMin, yearMax := 1900, currentYear
 	for i, t := range types {
 		round := domain.Round{Index: i + 1, Type: t, YearMin: yearMin, YearMax: yearMax}
 		switch t {
@@ -181,21 +182,6 @@ func countTypes(types []domain.RoundType) (hl, bl, yr int) {
 		}
 	}
 	return hl, bl, yr
-}
-
-func poolYearBounds(pool []domain.Movie) (min, max int) {
-	for i, m := range pool {
-		if i == 0 || m.Year < min {
-			min = m.Year
-		}
-		if i == 0 || m.Year > max {
-			max = m.Year
-		}
-	}
-	if min > max {
-		min, max = max, min
-	}
-	return min, max
 }
 
 // EvaluateGuess parses a raw guess for the round's type, compares it to
