@@ -179,7 +179,7 @@ function submitAnswer(guess) {
 
 function renderHigherLower(round) {
   root.innerHTML = `
-    <p class="round-prompt">Which movie has the higher IMDb rating?</p>
+    <p class="round-prompt">Which movie has the higher rating?</p>
     <div class="hl-board"></div>`;
   const board = root.querySelector(".hl-board");
   let locked = false;
@@ -238,7 +238,7 @@ const BLUR_STEP = 7;
 
 async function renderBlurred(round) {
   root.innerHTML = `
-    <p class="round-prompt">Which movie is hiding behind the blur?</p>
+    <p class="round-prompt">Guess the movie!</p>
     <img class="blur-img" id="blur-img" src="${round.poster_url}" alt="Mystery poster" style="--blur:${BLUR_START}px" />
     <div class="dots" id="dots"></div>
     <div class="search-wrap">

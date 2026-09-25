@@ -15,7 +15,20 @@ const (
 	dailyGenLockKey   = "daily:gen:lock"
 	adminRateLimitTTL = 15 * time.Minute
 	adminMaxFails     = 5
+
+	// dailyRunKeyPrefix + date is the once-per-day marker for the whole
+	// maintenance chain. The 25h TTL garbage-collects yesterday's key
+	// while safely outliving every check against its own date.
+	dailyRunKeyPrefix = "cron:last_run:"
+	dailyRunTTL       = 25 * time.Hour
 )
+
+// ClaimDailyRun claims the once-per-day marker for the given date
+// (SETNX cron:last_run:<date>). It returns false when another trigger
+// already claimed that date.
+func (l *DailyLock) ClaimDailyRun(ctx context.Context, date string) (bool, error) {
+	return l.rdb.SetNX(ctx, dailyRunKeyPrefix+date, 1, dailyRunTTL).Result()
+}
 
 // AcquireGenLock takes the SETNX lock guarding concurrent daily game
 // generation. It returns false when another worker holds it.

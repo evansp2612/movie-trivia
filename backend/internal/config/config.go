@@ -12,6 +12,7 @@ type Config struct {
 	DatabaseURL    string
 	RedisURL       string
 	AdminPassword  string
+	CronSecret     string
 	Port           string
 	AllowedOrigin  string
 	PoolRefreshLoc *time.Location
@@ -23,11 +24,12 @@ func Load() (*Config, error) {
 	cfg := &Config{
 		TMDBAPIKey:    os.Getenv("TMDB_API_KEY"),
 		OMDBAPIKey:    os.Getenv("OMDB_API_KEY"),
-		DatabaseURL:   getenv("DATABASE_URL", "postgres://movie:movie@localhost:5432/movie_trivia?sslmode=disable"),
-		RedisURL:      getenv("REDIS_URL", "redis://localhost:6379"),
-		AdminPassword: getenv("ADMIN_PASSWORD", "changeme"),
-		Port:          getenv("PORT", "8080"),
-		AllowedOrigin: getenv("ALLOWED_ORIGIN", "http://localhost:3000"),
+		DatabaseURL:   os.Getenv("DATABASE_URL"),
+		RedisURL:      os.Getenv("REDIS_URL"),
+		AdminPassword: os.Getenv("ADMIN_PASSWORD"),
+		CronSecret:    os.Getenv("CRON_SECRET"),
+		Port:          os.Getenv("PORT"),
+		AllowedOrigin: os.Getenv("ALLOWED_ORIGIN"),
 	}
 
 	if cfg.TMDBAPIKey == "" || cfg.OMDBAPIKey == "" {

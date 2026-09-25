@@ -36,6 +36,9 @@ func writeError(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusConflict, errorBody{err.Error()})
 	case errors.Is(err, domain.ErrPoolEmpty):
 		writeJSON(w, http.StatusServiceUnavailable, errorBody{err.Error()})
+	case errors.Is(err, domain.ErrGamePreparing):
+		w.Header().Set("Retry-After", "5")
+		writeJSON(w, http.StatusServiceUnavailable, errorBody{err.Error()})
 	case errors.Is(err, domain.ErrNotImplemented):
 		writeJSON(w, http.StatusNotImplemented, errorBody{err.Error()})
 	default:

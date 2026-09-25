@@ -39,3 +39,13 @@ func (r *DailyGameRepo) Get(ctx context.Context, gameDate string) ([]domain.Roun
 	var rounds []domain.Round
 	return rounds, json.Unmarshal(b, &rounds)
 }
+
+// Has reports whether a round set exists for the date — used by the
+// daily chain's self-healing re-trigger to detect a midnight run that
+// died before generating the game.
+func (r *DailyGameRepo) Has(ctx context.Context, gameDate string) (bool, error) {
+	var exists bool
+	err := r.db.QueryRowContext(ctx,
+		`SELECT EXISTS(SELECT 1 FROM daily_games WHERE game_date=$1)`, gameDate).Scan(&exists)
+	return exists, err
+}

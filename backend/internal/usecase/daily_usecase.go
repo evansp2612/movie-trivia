@@ -45,6 +45,12 @@ func (u *DailyUsecase) Start(ctx context.Context, playerID string) (*domain.Sess
 		return nil, err
 	}
 	rounds, err := u.dailyGames.Get(ctx, gameDate)
+	if err == domain.ErrNotFound {
+		// The daily chain hasn't generated today's set yet (e.g. a
+		// player arrives right after midnight). Tell the client to
+		// retry shortly instead of failing with a generic 404.
+		return nil, domain.ErrGamePreparing
+	}
 	if err != nil {
 		return nil, err
 	}

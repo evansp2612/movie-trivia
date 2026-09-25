@@ -90,13 +90,14 @@ func main() {
 	leaderboardUC := usecase.NewLeaderboardUsecase(entries, sessions, cfg.PoolRefreshLoc)
 	adminUC := usecase.NewAdminUsecase(cfg.AdminPassword, dailyGames)
 
-	// Background jobs: master pool refresh (every 4h) and daily
-	// game generation (once per calendar day in POOL_REFRESH_TZ).
-	scheduler := cron.NewScheduler(poolUC, gameUC, dailyGames, dailyLock, cfg.PoolRefreshLoc)
-	scheduler.Start(ctx)
+	// ONE daily job (pool refresh → daily game generation → session GC),
+	// triggered lazily by the first request of the day — the 00:00 cron
+	// ping from the platform boots the function and starts the chain.
+	scheduler := cron.NewScheduler(poolUC, gameUC, dailyGames, dailyLock, sessions, dailyLock, cfg.PoolRefreshLoc)
+	scheduler.RunIfNeeded(ctx)
 
 	// HTTP
-	router := httphandler.New(dailyUC, freeplayUC, poolUC, leaderboardUC, adminUC, dailyLock, cfg.AllowedOrigin, sessions, cfg.PoolRefreshLoc)
+	router := httphandler.New(dailyUC, freeplayUC, poolUC, leaderboardUC, adminUC, dailyLock, cfg.CronSecret, cfg.AllowedOrigin, cfg.PoolRefreshLoc, scheduler)
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router,

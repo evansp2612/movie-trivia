@@ -2,15 +2,20 @@ package httphandler
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"time"
 
-	"movie-trivia/internal/domain"
-	"movie-trivia/internal/repository"
 	rediscache "movie-trivia/internal/repository/redis"
 	"movie-trivia/internal/usecase"
 )
+
+// DailyRunner triggers and runs the once-per-day maintenance chain.
+// Satisfied by cron.Scheduler in main.go: RunIfNeeded is the lazy
+// per-request check, ForceRun the explicit synchronous cron trigger.
+type DailyRunner interface {
+	RunIfNeeded(ctx context.Context)
+	ForceRun(ctx context.Context) (any, error)
+}
 
 // New builds the full API route table (PRD Part 3 §4).
 func New(
@@ -20,9 +25,10 @@ func New(
 	leaderboard *usecase.LeaderboardUsecase,
 	admin *usecase.AdminUsecase,
 	lock *rediscache.DailyLock,
+	cronSecret string,
 	allowedOrigin string,
-	sessions repository.SessionRepo,
 	loc *time.Location,
+	runner DailyRunner,
 ) http.Handler {
 	mux := http.NewServeMux()
 
@@ -31,6 +37,7 @@ func New(
 	poolH := NewPoolHandler(pool)
 	lbH := NewLeaderboardHandler(leaderboard)
 	adminH := NewAdminHandler(admin, loc)
+	cronH := NewCronHandler(runner, cronSecret, admin.Password())
 
 	// Pool / auto-complete
 	mux.HandleFunc("GET /api/pool/titles", poolH.Titles)
@@ -53,25 +60,16 @@ func New(
 	// Admin (password-gated reveal)
 	mux.Handle("GET /api/admin/daily/reveal", AdminMiddleware(admin, lock)(http.HandlerFunc(adminH.Reveal)))
 
-	// Anonymous player identity via long-lived HTTP-only cookie.
-	handler := playerIDMiddleware(mux)
+	// Cron trigger (protected; called by the platform cron at 00:00)
+	mux.HandleFunc("GET /api/cron/daily", cronH.Daily)
 
-	// Background GC of abandoned Free Play sessions (stale-session timer).
-	go runSessionGC(sessions)
+	// Anonymous player identity via long-lived HTTP-only cookie, then the
+	// once-per-day maintenance trigger: the first request after midnight
+	// (the platform cron ping) boots the daily chain in the background.
+	handler := playerIDMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		runner.RunIfNeeded(r.Context())
+		mux.ServeHTTP(w, r)
+	}))
 
 	return corsMiddleware(allowedOrigin, handler)
-}
-
-func runSessionGC(sessions repository.SessionRepo) {
-	ticker := time.NewTicker(time.Hour)
-	for range ticker.C {
-		n, err := sessions.DeleteStale(context.Background(), domain.ModeFreePlay, 24*time.Hour)
-		if err != nil {
-			log.Printf("session gc: %v", err)
-			continue
-		}
-		if n > 0 {
-			log.Printf("session gc: removed %d stale freeplay sessions", n)
-		}
-	}
 }

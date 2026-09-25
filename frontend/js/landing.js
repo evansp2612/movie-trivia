@@ -63,7 +63,7 @@ dailyBtn.addEventListener("click", async () => {
   }
   dailyBtn.disabled = true;
   try {
-    const session = await api.daily.start();
+    const session = await startDailyWithRetry();
     startGame("daily", session);
   } catch (err) {
     if (err instanceof APIError && err.status === 409) {
@@ -80,6 +80,25 @@ dailyBtn.addEventListener("click", async () => {
     console.error(err);
   }
 });
+
+// Right after midnight the daily chain (pool refresh + game generation)
+// may still be running: /daily/start then answers 503 "preparing".
+// Poll every 3s until the game is ready (~60s cap) instead of failing.
+async function startDailyWithRetry(attempts = 20) {
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await api.daily.start();
+    } catch (err) {
+      if (err instanceof APIError && err.status === 503 && i < attempts - 1) {
+        meta.textContent = "Preparing game…";
+        await new Promise((r) => setTimeout(r, 3000));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new APIError("Game is taking longer to prepare — try again soon.", 503);
+}
 
 freeplayBtn.addEventListener("click", async () => {
   freeplayBtn.disabled = true;

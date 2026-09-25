@@ -22,6 +22,10 @@ func (u *AdminUsecase) CheckPassword(supplied string) bool {
 	return subtle.ConstantTimeCompare([]byte(supplied), []byte(u.password)) == 1
 }
 
+// Password returns the configured admin password (used by the cron
+// handler, which accepts it in place of a dedicated cron secret).
+func (u *AdminUsecase) Password() string { return u.password }
+
 // Reveal returns today's full round set including correct answers.
 func (u *AdminUsecase) Reveal(ctx context.Context, gameDate string) (any, error) {
 	return u.dailyGames.Get(ctx, gameDate)
