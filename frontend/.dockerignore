@@ -2,4 +2,3 @@
 *.md
 .dockerignore
 Dockerfile
-nginx.conf

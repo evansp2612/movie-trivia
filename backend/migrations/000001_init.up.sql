@@ -1,4 +1,4 @@
--- Durable tables (PRD Part 3 §3). Redis holds all ephemeral state.
+-- Durable tables. Redis holds all ephemeral state.
 
 CREATE TABLE sessions (
     id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),

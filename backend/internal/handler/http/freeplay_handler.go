@@ -31,12 +31,12 @@ func (h *FreeplayHandler) Round(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorBody{"invalid round index"})
 		return
 	}
-	round, err := h.freeplay.Round(r.Context(), r.PathValue("id"), n)
+	round, err := h.freeplay.Round(r.Context(), playerIDFrom(r.Context()), r.PathValue("id"), n)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, round)
+	writeJSON(w, http.StatusOK, publicRound(round))
 }
 
 // Answer: POST /api/freeplay/{id}/round/{n}/answer.
@@ -50,7 +50,7 @@ func (h *FreeplayHandler) Answer(w http.ResponseWriter, r *http.Request) {
 		Guess json.RawMessage `json:"guess"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&body)
-	s, err := h.freeplay.Answer(r.Context(), r.PathValue("id"), n, body.Guess)
+	s, err := h.freeplay.Answer(r.Context(), playerIDFrom(r.Context()), r.PathValue("id"), n, body.Guess)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -60,7 +60,7 @@ func (h *FreeplayHandler) Answer(w http.ResponseWriter, r *http.Request) {
 
 // Result: GET /api/freeplay/{id}/result.
 func (h *FreeplayHandler) Result(w http.ResponseWriter, r *http.Request) {
-	res, err := h.freeplay.Result(r.Context(), r.PathValue("id"))
+	res, err := h.freeplay.Result(r.Context(), playerIDFrom(r.Context()), r.PathValue("id"))
 	if err != nil {
 		writeError(w, err)
 		return

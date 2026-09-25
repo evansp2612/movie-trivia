@@ -2,8 +2,23 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <title>Movie Trivia Admin</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Movie Trivia — Admin Reveal</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="css/style.css" />
     <script type="module" src="js/admin.js"></script>
   </head>
-  <body></body>
+  <body>
+    <main class="admin__wrap">
+      <h1 class="landing__title">Admin Reveal</h1>
+      <p class="landing__tagline">Today&rsquo;s Game of the Day with answers.</p>
+
+      <form id="reveal-form" class="admin__form">
+        <input type="password" id="admin-password" placeholder="Admin password" autocomplete="off" />
+        <button type="submit" class="btn btn--primary">Reveal</button>
+      </form>
+      <p id="admin-msg" class="landing__meta" aria-live="polite"></p>
+      <section id="rounds-root"></section>
+    </main>
+  </body>
 </html>

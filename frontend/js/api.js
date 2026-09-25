@@ -1,5 +1,12 @@
 import { API_BASE } from "./config.js";
 
+export class APIError extends Error {
+  constructor(message, status) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function request(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: "include",
@@ -8,7 +15,7 @@ async function request(path, options = {}) {
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || `Request failed: ${res.status}`);
+    throw new APIError(body.error || `Request failed: ${res.status}`, res.status);
   }
   return res.json();
 }

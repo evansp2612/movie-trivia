@@ -37,8 +37,22 @@ func (u *FreeplayUsecase) Start(ctx context.Context, playerID string) (*domain.S
 	return s, nil
 }
 
-func (u *FreeplayUsecase) Round(ctx context.Context, sessionID string, n int) (*domain.Round, error) {
+// ownedSession fetches the session and verifies it belongs to the
+// calling player. A foreign session ID returns ErrNotFound (not a
+// distinct "forbidden"), so probing other players' IDs is not possible.
+func (u *FreeplayUsecase) ownedSession(ctx context.Context, playerID, sessionID string) (*domain.Session, error) {
 	s, err := u.sessions.Get(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	if s.PlayerID != playerID {
+		return nil, domain.ErrNotFound
+	}
+	return s, nil
+}
+
+func (u *FreeplayUsecase) Round(ctx context.Context, playerID, sessionID string, n int) (*domain.Round, error) {
+	s, err := u.ownedSession(ctx, playerID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -50,8 +64,8 @@ func (u *FreeplayUsecase) Round(ctx context.Context, sessionID string, n int) (*
 	return nil, domain.ErrNotImplemented
 }
 
-func (u *FreeplayUsecase) Answer(ctx context.Context, sessionID string, n int, guess any) (*domain.Session, error) {
-	s, err := u.sessions.Get(ctx, sessionID)
+func (u *FreeplayUsecase) Answer(ctx context.Context, playerID, sessionID string, n int, guess any) (*domain.Session, error) {
+	s, err := u.ownedSession(ctx, playerID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -63,9 +77,11 @@ func (u *FreeplayUsecase) Answer(ctx context.Context, sessionID string, n int, g
 	return s, domain.ErrNotImplemented
 }
 
-func (u *FreeplayUsecase) Result(ctx context.Context, sessionID string) (any, error) {
+func (u *FreeplayUsecase) Result(ctx context.Context, playerID, sessionID string) (any, error) {
+	if _, err := u.ownedSession(ctx, playerID, sessionID); err != nil {
+		return nil, err
+	}
 	// TODO: final score + breakdown. Free Play has no leaderboard.
 	_ = ctx
-	_ = sessionID
 	return nil, domain.ErrNotImplemented
 }

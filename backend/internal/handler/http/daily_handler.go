@@ -49,7 +49,7 @@ func (h *DailyHandler) Round(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, round)
+	writeJSON(w, http.StatusOK, publicRound(round))
 }
 
 // Answer: POST /api/daily/round/{n}/answer.
