@@ -12,9 +12,10 @@ type DailyHandler struct{ daily *usecase.DailyUsecase }
 
 func NewDailyHandler(daily *usecase.DailyUsecase) *DailyHandler { return &DailyHandler{daily: daily} }
 
-// Status: GET /api/daily/status — completion state + today's top 10.
+// Status: GET /api/daily/status — completion state, whether this player
+// already submitted today, and today's top 10.
 func (h *DailyHandler) Status(w http.ResponseWriter, r *http.Request) {
-	completed, err := h.daily.Status(r.Context(), playerIDFrom(r.Context()))
+	completed, submitted, err := h.daily.Status(r.Context(), playerIDFrom(r.Context()))
 	if err != nil {
 		writeError(w, err)
 		return
@@ -24,7 +25,11 @@ func (h *DailyHandler) Status(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"is_completed": completed, "leaderboard": top})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"is_completed": completed,
+		"submitted":    submitted,
+		"leaderboard":  top,
+	})
 }
 
 // Start: POST /api/daily/start — start or resume; 409 once completed.

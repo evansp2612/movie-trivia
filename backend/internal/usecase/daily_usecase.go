@@ -126,18 +126,21 @@ func (u *DailyUsecase) Result(ctx context.Context, playerID string) (any, error)
 	return map[string]any{"score": s.Score}, nil
 }
 
-// Status reports today's completion state for the player.
-func (u *DailyUsecase) Status(ctx context.Context, playerID string) (bool, error) {
-	return u.sessions.StatusCompleted(ctx, playerID, u.today())
-}
-
-// SubmitLeaderboard records the one-shot name submission for today.
-func (u *DailyUsecase) SubmitLeaderboard(ctx context.Context, playerID, name string) error {
-	// TODO: validate name length (<= domain.MaxNameLength), require
-	// completed run, reject duplicates (UNIQUE constraint).
-	_ = ctx
-	_, _ = playerID, name
-	return domain.ErrNotImplemented
+// Status reports today's completion state for the player and whether
+// they already submitted a leaderboard entry today.
+func (u *DailyUsecase) Status(ctx context.Context, playerID string) (completed, submitted bool, err error) {
+	completed, err = u.sessions.StatusCompleted(ctx, playerID, u.today())
+	if err != nil {
+		return false, false, err
+	}
+	if !completed {
+		return false, false, nil
+	}
+	submitted, err = u.leaderboard.HasSubmitted(ctx, u.today(), playerID)
+	if err != nil {
+		return false, false, err
+	}
+	return completed, submitted, nil
 }
 
 // Top10 returns today's leaderboard entries.

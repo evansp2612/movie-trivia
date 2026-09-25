@@ -371,6 +371,129 @@ main {
   color: var(--error);
 }
 
+.score-label {
+  color: var(--text-dim);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-size: 0.85rem;
+  margin: 0 0 0.25rem;
+}
+
+.leaderboard {
+  max-width: 320px;
+  margin: 1.5rem auto 1rem;
+  text-align: left;
+}
+
+.leaderboard__title {
+  font-weight: 800;
+  font-size: 1.6rem;
+  margin: 0 0 0.9rem;
+  text-align: center;
+}
+
+.leaderboard__form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  margin-bottom: 1.4rem;
+}
+
+.leaderboard__form input {
+  width: 100%;
+  padding: 0.8rem 1rem;
+  border-radius: 12px;
+  border: 2px solid #94a3b8;
+  background: #0f172a;
+  color: #f8fafc;
+  font-family: inherit;
+  font-size: 1rem;
+}
+
+.leaderboard__form input:focus {
+  outline: none;
+  border-color: var(--primary);
+}
+
+.leaderboard__form .btn {
+  width: 60%;
+  margin: 0 auto;
+}
+
+.leaderboard__list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.leaderboard__row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  background: #0f172a;
+  border-radius: 10px;
+  padding: 0.55rem 0.8rem;
+}
+
+.leaderboard__rank {
+  width: 1.8em;
+  height: 1.8em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(148, 163, 184, 0.15);
+  font-weight: 800;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+
+.leaderboard__rank.rank-1,
+.leaderboard__rank.rank-2,
+.leaderboard__rank.rank-3 {
+  background: transparent;
+  font-size: 1.15rem;
+}
+
+.leaderboard__hint {
+  color: var(--error);
+  font-size: 0.85rem;
+  margin: 0.4rem 0 0;
+}
+
+.leaderboard__row.me {
+  border: 2px solid var(--primary);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.leaderboard__row.me.without-rank {
+  border-style: solid;
+}
+
+.leaderboard__name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+
+.leaderboard__score {
+  font-weight: 800;
+  color: var(--primary);
+  flex-shrink: 0;
+}
+
+.leaderboard__empty {
+  color: var(--text-dim);
+  text-align: center;
+  padding: 0.55rem;
+}
+
 /* ---------- Admin reveal ---------- */
 
 .admin__wrap {

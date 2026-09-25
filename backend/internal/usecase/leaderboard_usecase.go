@@ -43,8 +43,15 @@ func (u *LeaderboardUsecase) Submit(ctx context.Context, playerID, name string) 
 	if submitted {
 		return domain.ErrDuplicateSubmit
 	}
+	// The entry carries the player's final score from their completed
+	// session — without it the leaderboard would rank everyone at 0.
+	s, err := u.sessions.TodaySession(ctx, playerID, gameDate)
+	if err != nil {
+		return err
+	}
 	return u.entries.Submit(ctx, &domain.LeaderboardEntry{
 		GameDate: gameDate, PlayerID: playerID, Name: name,
+		Score:       s.Score,
 		SubmittedAt: time.Now(),
 	})
 }

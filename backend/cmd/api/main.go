@@ -96,7 +96,7 @@ func main() {
 	scheduler.Start(ctx)
 
 	// HTTP
-	router := httphandler.New(dailyUC, freeplayUC, poolUC, leaderboardUC, adminUC, dailyLock, cfg.AllowedOrigin, sessions)
+	router := httphandler.New(dailyUC, freeplayUC, poolUC, leaderboardUC, adminUC, dailyLock, cfg.AllowedOrigin, sessions, cfg.PoolRefreshLoc)
 	srv := &http.Server{
 		Addr:              ":" + cfg.Port,
 		Handler:           router,

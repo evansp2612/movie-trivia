@@ -22,6 +22,7 @@ func New(
 	lock *rediscache.DailyLock,
 	allowedOrigin string,
 	sessions repository.SessionRepo,
+	loc *time.Location,
 ) http.Handler {
 	mux := http.NewServeMux()
 
@@ -29,7 +30,7 @@ func New(
 	freeplayH := NewFreeplayHandler(freeplay)
 	poolH := NewPoolHandler(pool)
 	lbH := NewLeaderboardHandler(leaderboard)
-	adminH := NewAdminHandler(admin)
+	adminH := NewAdminHandler(admin, loc)
 
 	// Pool / auto-complete
 	mux.HandleFunc("GET /api/pool/titles", poolH.Titles)

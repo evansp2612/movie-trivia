@@ -428,15 +428,19 @@ export function renderRound(round) {
   }
 }
 
-// Resume on refresh — only when the player is mid-game: an unfinished,
-// non-exited session continues at its stored round. After a deliberate
-// ✕ (exited) or a finished run, a refresh stays on the landing page.
+// Resume on refresh — wherever the player left off:
+//   finished session        → the leaderboard/end view,
+//   unfinished, mid-game    → the game at the stored round,
+//   deliberately exited (✕) → the landing page.
 (() => {
   const m = activeMode();
   if (!m) return;
   const saved = readState(m);
   const a = JSON.parse(localStorage.getItem(activeKey) || "{}");
-  if (saved && saved.session && !saved.finished && !a.exited) {
+  if (!saved || !saved.session) return;
+  if (saved.finished) {
+    import("./end.js").then((mod) => mod.showEnd());
+  } else if (!a.exited) {
     showGame(m);
   }
 })();

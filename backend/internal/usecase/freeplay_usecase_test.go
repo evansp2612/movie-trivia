@@ -15,10 +15,11 @@ type fakeSessionRepo struct {
 	created       []*domain.Session
 	deletedActive []domain.GameMode
 	byID          map[string]*domain.Session
+	completed     map[string]bool // "playerID|gameDate" -> completed
 }
 
 func newFakeSessionRepo() *fakeSessionRepo {
-	return &fakeSessionRepo{byID: map[string]*domain.Session{}}
+	return &fakeSessionRepo{byID: map[string]*domain.Session{}, completed: map[string]bool{}}
 }
 
 func (f *fakeSessionRepo) Create(_ context.Context, s *domain.Session) error {
@@ -45,12 +46,18 @@ func (f *fakeSessionRepo) DeleteActiveByPlayer(_ context.Context, _ string, mode
 	f.deletedActive = append(f.deletedActive, mode)
 	return 1, nil
 }
-func (f *fakeSessionRepo) TodaySession(_ context.Context, _, _ string) (*domain.Session, error) {
+func (f *fakeSessionRepo) TodaySession(_ context.Context, playerID, date string) (*domain.Session, error) {
+	if f.completed[playerID+"|"+date] {
+		return &domain.Session{PlayerID: playerID, GameDate: date, IsCompleted: true, Score: 42}, nil
+	}
 	return nil, domain.ErrNotFound
 }
-func (f *fakeSessionRepo) UpsertStatus(_ context.Context, _, _ string, _ bool) error { return nil }
-func (f *fakeSessionRepo) StatusCompleted(_ context.Context, _, _ string) (bool, error) {
-	return false, nil
+func (f *fakeSessionRepo) UpsertStatus(_ context.Context, playerID, gameDate string, completed bool) error {
+	f.completed[playerID+"|"+gameDate] = completed
+	return nil
+}
+func (f *fakeSessionRepo) StatusCompleted(_ context.Context, playerID, gameDate string) (bool, error) {
+	return f.completed[playerID+"|"+gameDate], nil
 }
 
 type fakeRoundBuilder struct {
