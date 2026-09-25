@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -34,24 +35,61 @@ type pagedResponse struct {
 	Results []Movie `json:"results"`
 }
 
-// poolPages is how many pages of each list feed the candidate pool
-// (popular + top_rated, pages 1-4 → up to ~160 unique English movies).
-const poolPages = 4
+// poolPages is how many pages of each discover set feed the candidate
+// pool. Two discover queries — popularity-ranked and rating-ranked —
+// are interleaved for variety, giving up to ~240 unique candidates.
+const poolPages = 6
 
-// FetchPool calls /movie/popular and /movie/top_rated, pages 1-4,
-// keeping English-language movies only.
+// discoverSets are the two sorted discover queries that feed the pool.
+// with_original_language=en is TMDB's authoritative production-language
+// filter; vote_count.gte=500 keeps the rating-ranked set to movies with
+// meaningful votes.
+var discoverSets = []string{
+	"sort_by=popularity.desc",
+	"sort_by=vote_average.desc&vote_count.gte=500",
+}
+
+// FetchPool queries /discover/movie (pages 1-6 per set, English-language
+// movies only, filter applied server-side by TMDB). The two sets are
+// fetched concurrently and their results interleaved so both sources
+// contribute evenly to the pool.
 func (c *Client) FetchPool(ctx context.Context) ([]Movie, error) {
+	perSet := make([][]Movie, len(discoverSets))
+	var wg sync.WaitGroup
+	errs := make([]error, len(discoverSets))
+
+	for si, extra := range discoverSets {
+		wg.Add(1)
+		go func(si int, extra string) {
+			defer wg.Done()
+			var out []Movie
+			for page := 1; page <= poolPages; page++ {
+				var res pagedResponse
+				url := fmt.Sprintf("%s/discover/movie?page=%d&%s&include_adult=false", baseURL, page, extra)
+				if err := c.get(ctx, url, &res); err != nil {
+					errs[si] = fmt.Errorf("tmdb: discover[%s] page %d: %w", extra, page, err)
+					return
+				}
+				out = append(out, res.Results...)
+			}
+			perSet[si] = out
+		}(si, extra)
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// Round-robin interleave the two sets, deduping by TMDB ID.
 	var out []Movie
 	seen := map[int]bool{}
-	for _, list := range []string{"popular", "top_rated"} {
-		for page := 1; page <= poolPages; page++ {
-			var res pagedResponse
-			url := fmt.Sprintf("%s/movie/%s?page=%d&language=en-US", baseURL, list, page)
-			if err := c.get(ctx, url, &res); err != nil {
-				return nil, fmt.Errorf("tmdb: %s page %d: %w", list, page, err)
-			}
-			for _, m := range res.Results {
-				if m.OriginalLang == "en" && !seen[m.ID] {
+	for i := 0; i < poolPages*20; i++ {
+		for _, set := range perSet {
+			if i < len(set) {
+				m := set[i]
+				if !seen[m.ID] {
 					seen[m.ID] = true
 					out = append(out, m)
 				}

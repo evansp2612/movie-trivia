@@ -76,6 +76,7 @@ func main() {
 	// Redis caches
 	poolCache := rediscache.NewMasterPoolCache(rdb)
 	ratingCache := rediscache.NewRatingCache(rdb)
+	posterCache := rediscache.NewPosterCache(rdb)
 	dailyLock := rediscache.NewDailyLock(rdb)
 
 	// External API clients
@@ -83,7 +84,7 @@ func main() {
 	omdbClient := omdb.NewClient(cfg.OMDBAPIKey)
 
 	// Usecases
-	poolUC := usecase.NewPoolUsecase(poolCache, ratingCache, tmdbClient, omdbClient)
+	poolUC := usecase.NewPoolUsecase(poolCache, ratingCache, posterCache, tmdbClient, omdbClient)
 	gameUC := usecase.NewGameUsecase(poolUC)
 	freeplayUC := usecase.NewFreeplayUsecase(sessions, gameUC)
 	dailyUC := usecase.NewDailyUsecase(sessions, dailyGames, entries, gameUC, cfg.PoolRefreshLoc)

@@ -51,16 +51,18 @@ func (l *limiter) stop() { l.ticker.Stop() }
 type PoolUsecase struct {
 	cache   *rediscache.MasterPoolCache
 	ratings *rediscache.RatingCache
+	posters *rediscache.PosterCache
 	tmdb    *tmdb.Client
 	omdb    *omdb.Client
 	mu      sync.Mutex
 }
 
 func NewPoolUsecase(cache *rediscache.MasterPoolCache, ratings *rediscache.RatingCache,
-	tmdbClient *tmdb.Client, omdbClient *omdb.Client) *PoolUsecase {
+	posters *rediscache.PosterCache, tmdbClient *tmdb.Client, omdbClient *omdb.Client) *PoolUsecase {
 	return &PoolUsecase{
 		cache:   cache,
 		ratings: ratings,
+		posters: posters,
 		tmdb:    tmdbClient,
 		omdb:    omdbClient,
 	}
@@ -195,10 +197,18 @@ func (u *PoolUsecase) buildMovie(ctx context.Context, lim *limiter, c tmdb.Movie
 		}
 	}
 
-	lim.wait(ctx)
-	textless, err := u.tmdb.FetchTextlessPoster(ctx, c.ID)
+	textless, ok, err := u.posters.Get(ctx, c.ID)
 	if err != nil {
-		log.Printf("pool: tmdb %d (%s): textless poster: %v", c.ID, c.Title, err)
+		log.Printf("pool: poster cache %d: %v", c.ID, err)
+	}
+	if err != nil || !ok {
+		lim.wait(ctx)
+		textless, err = u.tmdb.FetchTextlessPoster(ctx, c.ID)
+		if err != nil {
+			log.Printf("pool: tmdb %d (%s): textless poster: %v", c.ID, c.Title, err)
+		} else if err := u.posters.Set(ctx, c.ID, textless); err != nil {
+			log.Printf("pool: cache poster %d: %v", c.ID, err)
+		}
 	}
 
 	year := 0
