@@ -29,6 +29,22 @@ type Round struct {
 	YearMax int `json:"year_max,omitempty"`
 }
 
+// AnswerOutcome is what the client receives after submitting a guess:
+// correctness, points earned, attempt count (blurred rounds), and the
+// reveal data for the post-round feedback screen.
+type AnswerOutcome struct {
+	Correct  bool `json:"correct"`
+	Points   int  `json:"points"`
+	Attempts int  `json:"attempts,omitempty"` // blurred rounds: attempts used so far
+	Actual   any  `json:"actual,omitempty"`   // {ratings:[a,b]} | {title} | {year}
+	// Server-authoritative position after this answer: the client syncs
+	// its saved round from here so a refresh at any moment (mid-round,
+	// result screen, after finish) resumes at the true position instead
+	// of a stale one that 409s on the next submit.
+	NextRound int  `json:"next_round"`
+	Finished  bool `json:"finished"`
+}
+
 // ScoreForRound maps an outcome to points: 10 for a correct higher/lower
 // or exact year, 10/8/6/4/2 by attempt for the blurred poster, floored at 0.
 func ScoreForRound(rt RoundType, correct bool, attempt, yearDiff int) (int, error) {

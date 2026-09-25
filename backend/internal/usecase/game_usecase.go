@@ -5,16 +5,26 @@ package usecase
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"log"
 	"math/rand"
+	"strings"
 	"time"
 
 	"movie-trivia/internal/domain"
 )
 
+// poolSource supplies the candidate pool; *PoolUsecase is the
+// production implementation, the interface keeps BuildRounds testable.
+type poolSource interface {
+	Candidates(ctx context.Context) ([]domain.Movie, error)
+}
+
 // GameUsecase contains logic shared by both modes: the "Shuffled Bag"
 // question-type distribution and round building from the master pool.
 type GameUsecase struct {
-	pool *PoolUsecase
+	pool poolSource
 	rng  *rand.Rand
 }
 
@@ -77,41 +87,100 @@ func (u *GameUsecase) BuildRounds(ctx context.Context) ([]domain.Round, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(pool) < domain.RoundsPerGame*2 {
-		return nil, domain.ErrPoolEmpty
-	}
 	types := u.ShuffledBag()
-	perm := u.rng.Perm(len(pool))
 	yearMin, yearMax := poolYearBounds(pool)
 
-	rounds := make([]domain.Round, 0, len(types))
+	// Partition the pool by round-suitability. The pool is a raw
+	// candidate store; rounds may only use movies that satisfy their
+	// type: higher/lower needs a rating, blurred needs a textless
+	// poster, guess-the-year needs a real release year — current-year
+	// movies are excluded from year rounds (their date is the topic of
+	// the news, not trivia, and the pool is full of them).
+	ratable, textless, dated := partitionPool(pool, time.Now().Year())
+	hlCount, blCount, yrCount := countTypes(types)
+	if len(ratable) < hlCount*2 {
+		log.Printf("BuildRounds: pool has %d ratable movies, need %d", len(ratable), hlCount*2)
+		return nil, domain.ErrPoolEmpty
+	}
+	if len(textless) < blCount {
+		log.Printf("BuildRounds: pool has %d textless posters, need %d", len(textless), blCount)
+		return nil, domain.ErrPoolEmpty
+	}
+	if len(dated) < yrCount {
+		log.Printf("BuildRounds: pool has %d dated movies, need %d", len(dated), yrCount)
+		return nil, domain.ErrPoolEmpty
+	}
+
+	// next draws a movie from one partition; the shared used-set keeps
+	// every movie at most once per game across all rounds.
 	used := map[int]bool{}
-	next := func() domain.Movie {
-		for _, idx := range perm {
-			if !used[idx] {
-				used[idx] = true
-				return pool[idx]
+	drawer := func(from []domain.Movie) domain.Movie {
+		for _, idx := range u.rng.Perm(len(from)) {
+			m := from[idx]
+			if !used[m.TMDBID] {
+				used[m.TMDBID] = true
+				return m
 			}
 		}
 		return domain.Movie{}
 	}
+
+	rounds := make([]domain.Round, 0, len(types))
 	for i, t := range types {
 		round := domain.Round{Index: i + 1, Type: t, YearMin: yearMin, YearMax: yearMax}
 		switch t {
 		case domain.RoundHigherLower:
-			a, b := next(), next()
+			a, b := drawer(ratable), drawer(ratable)
 			// Swap in a different movie on a rating tie (rounds become
 			// ambiguous when both sides carry the same rating).
 			if a.IMDBRating == b.IMDBRating {
-				a = next()
+				if again := drawer(ratable); again.TMDBID != 0 {
+					a = again
+				}
 			}
 			round.Movies = []domain.Movie{a, b}
+		case domain.RoundBlurred:
+			round.Movies = []domain.Movie{drawer(textless)}
 		default:
-			round.Movies = []domain.Movie{next()}
+			round.Movies = []domain.Movie{drawer(dated)}
 		}
 		rounds = append(rounds, round)
 	}
 	return rounds, nil
+}
+
+func partitionPool(pool []domain.Movie, currentYear int) (ratable, textless, dated []domain.Movie) {
+	ratable = make([]domain.Movie, 0, len(pool))
+	textless = make([]domain.Movie, 0, len(pool))
+	dated = make([]domain.Movie, 0, len(pool))
+	for _, m := range pool {
+		if m.IMDBRating > 0 {
+			ratable = append(ratable, m)
+		}
+		if m.TextlessPosterURL != "" {
+			textless = append(textless, m)
+		}
+		// Year rounds: a real past release year — "this year" movies are
+		// excluded so the answer is settled trivia, not a 2026 release.
+		if m.Year > 0 && m.Year < currentYear {
+			dated = append(dated, m)
+		}
+	}
+	return ratable, textless, dated
+}
+
+func countTypes(types []domain.RoundType) (hl, bl, yr int) {
+	for _, t := range types {
+		switch t {
+		case domain.RoundHigherLower:
+			hl++
+		case domain.RoundBlurred:
+			bl++
+		default:
+			yr++
+		}
+	}
+	return hl, bl, yr
 }
 
 func poolYearBounds(pool []domain.Movie) (min, max int) {
@@ -127,4 +196,100 @@ func poolYearBounds(pool []domain.Movie) (min, max int) {
 		min, max = max, min
 	}
 	return min, max
+}
+
+// EvaluateGuess parses a raw guess for the round's type, compares it to
+// the answer, and scores it. It never mutates the session — callers
+// apply the outcome via ApplyOutcome. Returns ErrInvalidGuess when the
+// guess body doesn't match the round type's expected shape.
+func (u *GameUsecase) EvaluateGuess(round *domain.Round, attempts int, raw json.RawMessage) (domain.AnswerOutcome, error) {
+	switch round.Type {
+	case domain.RoundHigherLower:
+		if len(round.Movies) != 2 {
+			return domain.AnswerOutcome{}, fmt.Errorf("higher/lower round %d malformed", round.Index)
+		}
+		var g struct {
+			Choice *int `json:"choice"`
+		}
+		if err := json.Unmarshal(raw, &g); err != nil || g.Choice == nil || (*g.Choice != 0 && *g.Choice != 1) {
+			return domain.AnswerOutcome{}, domain.ErrInvalidGuess
+		}
+		correct := round.Movies[*g.Choice].IMDBRating > round.Movies[1-*g.Choice].IMDBRating
+		points, _ := domain.ScoreForRound(round.Type, correct, 0, 0)
+		return domain.AnswerOutcome{
+			Correct: correct,
+			Points:  points,
+			Actual:  map[string]any{"ratings": []float64{round.Movies[0].IMDBRating, round.Movies[1].IMDBRating}},
+		}, nil
+
+	case domain.RoundBlurred:
+		if len(round.Movies) != 1 {
+			return domain.AnswerOutcome{}, fmt.Errorf("blurred round %d malformed", round.Index)
+		}
+		var g struct {
+			Title string `json:"title"`
+		}
+		if err := json.Unmarshal(raw, &g); err != nil {
+			return domain.AnswerOutcome{}, domain.ErrInvalidGuess
+		}
+		attemptsUsed := attempts + 1
+		if attemptsUsed > domain.BlurredMaxTries {
+			attemptsUsed = domain.BlurredMaxTries
+		}
+		correct := strings.EqualFold(strings.TrimSpace(g.Title), strings.TrimSpace(round.Movies[0].Title))
+		points, _ := domain.ScoreForRound(round.Type, correct, attemptsUsed, 0)
+		return domain.AnswerOutcome{
+			Correct:  correct,
+			Points:   points,
+			Attempts: attemptsUsed,
+			Actual:   map[string]any{"title": round.Movies[0].Title},
+		}, nil
+
+	case domain.RoundGuessYear:
+		if len(round.Movies) != 1 {
+			return domain.AnswerOutcome{}, fmt.Errorf("year round %d malformed", round.Index)
+		}
+		var g struct {
+			Year *int `json:"year"`
+		}
+		if err := json.Unmarshal(raw, &g); err != nil || g.Year == nil {
+			return domain.AnswerOutcome{}, domain.ErrInvalidGuess
+		}
+		diff := *g.Year - round.Movies[0].Year
+		if diff < 0 {
+			diff = -diff
+		}
+		correct := diff == 0
+		points, _ := domain.ScoreForRound(round.Type, correct, 0, diff)
+		return domain.AnswerOutcome{
+			Correct: correct,
+			Points:  points,
+			Actual:  map[string]any{"year": round.Movies[0].Year},
+		}, nil
+
+	default:
+		return domain.AnswerOutcome{}, fmt.Errorf("unknown round type %q", round.Type)
+	}
+}
+
+// ApplyOutcome mutates the session with an evaluated guess: points are
+// added to the score and the round ends after ONE answer — except the
+// blurred poster, which allows up to 5 attempts and only ends on a
+// correct guess or the 5th miss (wrong higher/lower and year guesses
+// still advance: one guess per round, then feedback).
+// Completing round 10 flips IsCompleted.
+func ApplyOutcome(s *domain.Session, roundType domain.RoundType, outcome domain.AnswerOutcome) {
+	s.Score += outcome.Points
+	roundOver := outcome.Correct ||
+		roundType != domain.RoundBlurred ||
+		outcome.Attempts >= domain.BlurredMaxTries
+	if roundOver {
+		s.CurrentRound++
+		s.Attempts = 0
+	} else {
+		s.Attempts = outcome.Attempts
+	}
+	if s.CurrentRound > domain.RoundsPerGame {
+		s.IsCompleted = true
+	}
 }

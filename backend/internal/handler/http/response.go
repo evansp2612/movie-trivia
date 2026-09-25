@@ -28,6 +28,8 @@ func writeError(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusConflict, errorBody{err.Error()})
 	case errors.Is(err, domain.ErrInvalidName):
 		writeJSON(w, http.StatusBadRequest, errorBody{err.Error()})
+	case errors.Is(err, domain.ErrInvalidGuess):
+		writeJSON(w, http.StatusBadRequest, errorBody{err.Error()})
 	case errors.Is(err, domain.ErrNotSubmitted):
 		writeJSON(w, http.StatusForbidden, errorBody{err.Error()})
 	case errors.Is(err, domain.ErrDuplicateSubmit):

@@ -11,6 +11,7 @@ var (
 	ErrNotSubmitted     = errors.New("today's run must be completed before submitting a score")
 	ErrDuplicateSubmit  = errors.New("score already submitted for today")
 	ErrPoolEmpty        = errors.New("master pool is empty")
+	ErrInvalidGuess     = errors.New("invalid guess for this round type")
 )
 
 // ErrNotImplemented marks endpoints whose business logic is still a stub.

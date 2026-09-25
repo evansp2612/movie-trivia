@@ -13,7 +13,10 @@ type RatingCache struct{ rdb *redis.Client }
 
 func NewRatingCache(rdb *redis.Client) *RatingCache { return &RatingCache{rdb: rdb} }
 
-const ratingTTL = 24 * time.Hour
+// ratingTTL is 7 days: IMDb ratings drift slowly, so the daily pool
+// refresh re-fetches only new pool entrants (~10-40 OMDb calls/day
+// steady state) instead of the whole pool.
+const ratingTTL = 7 * 24 * time.Hour
 
 // Get returns the cached IMDb rating for key rating:{tmdbID}.
 func (c *RatingCache) Get(ctx context.Context, tmdbID int) (float64, bool, error) {

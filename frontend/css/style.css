@@ -20,6 +20,12 @@
   box-sizing: border-box;
 }
 
+/* Component rules like .btn { display: flex } must never defeat the
+   hidden attribute (this let a "hidden" Lock In stay clickable). */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   font-family: "Inter", system-ui, sans-serif;
@@ -432,4 +438,130 @@ main {
   width: 100%;
   border-radius: 8px;
   margin-top: 0.5rem;
+}
+/* ---------- Reveal & result improvements ---------- */
+
+/* Result headline: bigger, with a "close but wrong" middle state. */
+.result-line {
+  font-weight: 800;
+  font-size: 1.6rem;
+  margin-top: 1.25rem;
+  letter-spacing: -0.01em;
+}
+
+.result-line.good { color: var(--success); }
+.result-line.mid { color: var(--primary); }
+.result-line.bad { color: var(--error); }
+
+/* The actual answer, in its own surface card so it stands out. */
+.answer-card {
+  background: var(--surface);
+  border: 2px solid var(--primary);
+  border-radius: var(--radius);
+  padding: 1rem 1.5rem;
+  margin: 1rem auto;
+  max-width: 480px;
+  font-weight: 600;
+  font-size: 1.1rem;
+}
+
+/* Higher/lower: rating pill on each poster instead of a center overlay
+   that covers the artwork. */
+.poster-wrap {
+  position: relative;
+}
+
+.rating-pill {
+  position: absolute;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 2px solid var(--text-dim);
+  color: var(--text);
+  font-weight: 800;
+  font-size: 1.05rem;
+  padding: 0.3rem 0.9rem;
+  border-radius: 999px;
+  z-index: 3;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+}
+
+.rating-pill.win {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: #1c1204;
+  transform: translateX(-50%) scale(1.1);
+}
+
+/* Blurred: submit button under the search input. */
+#blur-submit {
+  width: 100%;
+  margin-top: 0.75rem;
+  margin-bottom: 0;
+}
+
+.close-btn,
+.card-close {
+  background: transparent;
+  border: 1px solid var(--text-dim);
+  color: var(--text);
+  border-radius: 50%;
+  width: 2rem;
+  height: 2rem;
+  font-size: 0.9rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+
+.close-btn:hover,
+.card-close:hover {
+  border-color: var(--error);
+  color: var(--error);
+}
+
+.card-close {
+  position: absolute;
+  top: 0.75rem;
+  right: 0.75rem;
+}
+
+.landing__card,
+.admin__wrap {
+  position: relative;
+}
+
+.hud-right {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.hud-menu {
+  background: transparent;
+  border: 1px solid var(--text-dim);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 0.3rem 0.7rem;
+  font-family: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.hud-menu:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+.admin-home {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.admin-home:hover {
+  color: var(--primary);
 }

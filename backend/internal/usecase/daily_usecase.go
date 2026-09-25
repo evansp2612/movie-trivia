@@ -2,6 +2,7 @@ package usecase
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"movie-trivia/internal/domain"
@@ -77,29 +78,52 @@ func (u *DailyUsecase) Round(ctx context.Context, playerID string, n int) (*doma
 	return &rounds[n-1], nil
 }
 
-// Answer scores a guess, advances the session, and returns the round
-// result (correct/incorrect, actual answers, points earned).
-func (u *DailyUsecase) Answer(ctx context.Context, playerID string, n int, guess any) (*domain.Session, error) {
+// Answer evaluates a guess against today's fixed set, scores it,
+// advances the session, and returns the result (correct/incorrect,
+// reveal data, points earned). Completing round 10 locks the run.
+func (u *DailyUsecase) Answer(ctx context.Context, playerID string, n int, raw json.RawMessage) (*domain.Session, *domain.AnswerOutcome, error) {
+	s, err := u.sessions.TodaySession(ctx, playerID, u.today())
+	if err != nil {
+		return nil, nil, err
+	}
+	if s.IsCompleted || s.CurrentRound != n {
+		return nil, nil, domain.ErrSessionCompleted
+	}
+	rounds, err := u.dailyGames.Get(ctx, u.today())
+	if err != nil {
+		return nil, nil, err
+	}
+	if n < 1 || n > len(rounds) {
+		return nil, nil, domain.ErrNotFound
+	}
+	outcome, err := u.game.EvaluateGuess(&rounds[n-1], s.Attempts, raw)
+	if err != nil {
+		return nil, nil, err
+	}
+	ApplyOutcome(s, rounds[n-1].Type, outcome)
+	outcome.NextRound = s.CurrentRound
+	outcome.Finished = s.IsCompleted
+	if err := u.sessions.Update(ctx, s, n); err != nil {
+		return nil, nil, err
+	}
+	if s.IsCompleted {
+		if err := u.sessions.UpsertStatus(ctx, playerID, u.today(), true); err != nil {
+			return nil, nil, err
+		}
+	}
+	return s, &outcome, nil
+}
+
+// Result returns the final score for today's run.
+func (u *DailyUsecase) Result(ctx context.Context, playerID string) (any, error) {
 	s, err := u.sessions.TodaySession(ctx, playerID, u.today())
 	if err != nil {
 		return nil, err
 	}
-	if s.IsCompleted || s.CurrentRound != n {
-		return nil, domain.ErrSessionCompleted
+	if !s.IsCompleted {
+		return nil, domain.ErrNotSubmitted
 	}
-	// TODO: validate guess per round type, compute points via
-	// domain.ScoreForRound, persist, and flip is_completed + status on
-	// the 10th round.
-	_ = guess
-	return s, domain.ErrNotImplemented
-}
-
-// Result returns the final score and per-type breakdown for today.
-func (u *DailyUsecase) Result(ctx context.Context, playerID string) (any, error) {
-	// TODO: aggregate per-question-type breakdown.
-	_ = ctx
-	_ = playerID
-	return nil, domain.ErrNotImplemented
+	return map[string]any{"score": s.Score}, nil
 }
 
 // Status reports today's completion state for the player.

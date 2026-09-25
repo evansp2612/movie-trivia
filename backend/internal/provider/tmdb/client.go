@@ -34,13 +34,17 @@ type pagedResponse struct {
 	Results []Movie `json:"results"`
 }
 
-// FetchPool calls /movie/popular and /movie/top_rated, pages 1-2,
+// poolPages is how many pages of each list feed the candidate pool
+// (popular + top_rated, pages 1-4 → up to ~160 unique English movies).
+const poolPages = 4
+
+// FetchPool calls /movie/popular and /movie/top_rated, pages 1-4,
 // keeping English-language movies only.
 func (c *Client) FetchPool(ctx context.Context) ([]Movie, error) {
 	var out []Movie
 	seen := map[int]bool{}
 	for _, list := range []string{"popular", "top_rated"} {
-		for page := 1; page <= 2; page++ {
+		for page := 1; page <= poolPages; page++ {
 			var res pagedResponse
 			url := fmt.Sprintf("%s/movie/%s?page=%d&language=en-US", baseURL, list, page)
 			if err := c.get(ctx, url, &res); err != nil {

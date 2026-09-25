@@ -1,7 +1,8 @@
 // Game view: renders the three round types, submits guesses, shows
 // the post-round reveal, and advances through the 10-round run.
 // Rendered as a view inside / (set up by landing.js via showGame);
-// state comes from sessionStorage, never the URL.
+// state comes from localStorage, never the URL. Refreshing mid-game
+// resumes at the stored round; a finished game never auto-resumes.
 import { api } from "./api.js";
 
 export const ROUNDS_PER_GAME = 10;
@@ -11,40 +12,79 @@ let sessionId = "";
 let roundIndex = 1;
 let score = 0;
 
+// One storage key per mode (game:freeplay / game:daily) so starting the
+// daily run never clobbers a saved Free Play session, plus a game:active
+// marker recording which mode is in play and whether the player left it
+// deliberately (the ✕ button) — that flag is what lets a mid-game
+// refresh resume while a post-exit refresh stays on the landing page.
+const stateKey = (m) => `game:${m}`;
+const activeKey = "game:active";
+
+function readState(m) {
+  return JSON.parse(localStorage.getItem(stateKey(m)) || "null");
+}
+
+function setActiveMode(m, exited) {
+  localStorage.setItem(activeKey, JSON.stringify({ mode: m, exited }));
+}
+
+function activeMode() {
+  const a = JSON.parse(localStorage.getItem(activeKey) || "null");
+  return a ? a.mode : null;
+}
+
 const hudRound = document.getElementById("hud-round");
 const hudScore = document.getElementById("hud-score");
 const root = document.getElementById("round-root");
 
 // showGame swaps the landing view for the game view and starts round 1
-// (or resumes at the stored round). State is (re)read here rather than
-// at module load: landing.js imports this module before the session is
-// created, and a second game in the same page load must pick up fresh
-// state.
-export function showGame() {
-  const game = JSON.parse(sessionStorage.getItem("game") || "{}");
-  mode = game.mode || "daily";
+// (or resumes at the stored round for the given mode). State is (re)read
+// here rather than at module load: landing.js imports this module before
+// a session is created, and a second game in the same page load must
+// pick up fresh state.
+export function showGame(m) {
+  mode = m || "daily";
+  const game = readState(mode) || {};
   sessionId = game.session || "";
   roundIndex = Number(game.round || 1);
   score = Number(game.score || 0);
+  setActiveMode(mode, false);
   document.getElementById("landing-view").hidden = true;
   document.getElementById("end-view").hidden = true;
   document.getElementById("game-view").hidden = false;
   loadRound();
 }
 
-function saveState() {
-  sessionStorage.setItem("game", JSON.stringify({
-    mode, session: sessionId, round: roundIndex, score,
+function saveState(finished = false) {
+  localStorage.setItem(stateKey(mode), JSON.stringify({
+    mode, session: sessionId, round: roundIndex, score, finished,
   }));
 }
 
 function renderHud() {
-  hudRound.textContent = `Round ${roundIndex} of ${ROUNDS_PER_GAME}`;
+  // Display the round being PLAYED (roundIndex is the server's next
+  // round after an answer; the label catches up when it loads).
+  const shown = roundIndex > ROUNDS_PER_GAME ? ROUNDS_PER_GAME : roundIndex;
+  hudRound.textContent = `Round ${shown} of ${ROUNDS_PER_GAME}`;
   hudScore.textContent = `Score ${score}`;
 }
 
+// Menu (✕): back to the landing view without destroying the session —
+// a run can still be resumed via its Play/Free Play button. The exited
+// flag makes a subsequent refresh stay on the landing page instead of
+// jumping back into the game.
+export function showMenu() {
+  if (mode) setActiveMode(mode, true);
+  document.getElementById("game-view").hidden = true;
+  document.getElementById("end-view").hidden = true;
+  document.getElementById("landing-view").hidden = false;
+  window.dispatchEvent(new CustomEvent("game:exit"));
+}
+window.gameShowMenu = showMenu;
+
 async function loadRound() {
-  renderHud();
+  hudRound.textContent = `Round ${Math.min(roundIndex, ROUNDS_PER_GAME)} of ${ROUNDS_PER_GAME}`;
+  hudScore.textContent = `Score ${score}`;
   root.innerHTML = '<p class="landing__meta">Loading round…</p>';
   try {
     const round = mode === "daily"
@@ -57,30 +97,57 @@ async function loadRound() {
 }
 
 function showError(err) {
-  root.innerHTML = `<p class="landing__meta">${err.message}</p>
-    <a class="btn btn--outline next-btn" href="/">Back to menu</a>`;
+  const dead = /completed|not found/i.test(err.message || "");
+  if (dead) {
+    // The session can no longer be played: clear it so the next page
+    // load starts fresh at the menu instead of retrying a dead session.
+    localStorage.removeItem("game");
+  }
+  root.innerHTML = `<p class="landing__meta">${err.message}</p>`;
+  if (!dead) {
+    // Transient failure (network, pool empty): the session is fine —
+    // offer a retry at the same round.
+    const retry = document.createElement("button");
+    retry.className = "btn btn--primary next-btn";
+    retry.textContent = "Retry";
+    retry.addEventListener("click", loadRound);
+    root.appendChild(retry);
+  }
+  const menu = document.createElement("a");
+  menu.className = "btn btn--outline next-btn";
+  menu.href = "/";
+  menu.textContent = "Back to menu";
+  root.appendChild(menu);
   console.error(err);
 }
 
 // ---- shared reveal + advance ----
 
+// Result headline: a wrong answer can still earn points (year rounds,
+// later blurred attempts), so "Wrong. +8" would read as a contradiction.
+function resultLabel(correct, points) {
+  if (correct) return `Correct! +${points}`;
+  if (points > 0) return `So close! +${points}`;
+  return `Wrong. +${points}`;
+}
+
 function showResult({ correct, points, detail, onNext }) {
   const line = document.createElement("p");
-  line.className = `result-line ${correct ? "good" : "bad"}`;
-  line.textContent = correct ? `Correct! +${points}` : `Wrong. +${points}`;
+  line.className = `result-line ${correct ? "good" : points > 0 ? "mid" : "bad"}`;
+  line.textContent = resultLabel(correct, points);
   root.appendChild(line);
   if (detail) {
-    const d = document.createElement("p");
-    d.className = "landing__meta";
+    const d = document.createElement("div");
+    d.className = "answer-card";
     d.textContent = detail;
     root.appendChild(d);
   }
   const next = document.createElement("button");
   next.className = "btn btn--primary next-btn";
-  next.textContent = roundIndex >= ROUNDS_PER_GAME ? "Finish" : "Next round";
+  next.textContent = roundIndex > ROUNDS_PER_GAME ? "Finish" : "Next round";
   next.addEventListener("click", () => {
-    roundIndex += 1;
     if (roundIndex > ROUNDS_PER_GAME) {
+      saveState(true); // finished: a refresh must not resume this session
       import("./end.js").then((m) => m.showEnd());
       return;
     }
@@ -91,16 +158,21 @@ function showResult({ correct, points, detail, onNext }) {
   onNext?.();
 }
 
+// syncProgress adopts the server's authoritative position after every
+// answer: the saved round is the server's, so refreshing at any moment
+// (mid-round, result screen, after finish) resumes correctly instead of
+// resuming at a stale round and 409ing on the next submit.
+function syncProgress(res) {
+  score += res.points;
+  roundIndex = res.next_round;
+  saveState(res.finished);
+  hudScore.textContent = `Score ${score}`; // round label updates on loadRound
+}
+
 function submitAnswer(guess) {
   return mode === "daily"
     ? api.daily.answer(roundIndex, guess)
     : api.freeplay.answer(sessionId, roundIndex, guess);
-}
-
-function applyScore(points) {
-  score += points;
-  saveState();
-  renderHud();
 }
 
 // ---- round type: higher / lower ----
@@ -108,8 +180,7 @@ function applyScore(points) {
 function renderHigherLower(round) {
   root.innerHTML = `
     <p class="round-prompt">Which movie has the higher IMDb rating?</p>
-    <div class="hl-board"></div>
-    <div class="rating-badge" id="rating-badge"></div>`;
+    <div class="hl-board"></div>`;
   const board = root.querySelector(".hl-board");
   let locked = false;
 
@@ -117,7 +188,10 @@ function renderHigherLower(round) {
     const card = document.createElement("div");
     card.className = "hl-card";
     card.innerHTML = `
-      <img src="${movie.poster_url}" alt="${movie.title} poster" />
+      <div class="poster-wrap">
+        <img src="${movie.poster_url}" alt="${movie.title} poster" />
+        <span class="rating-pill" id="pill-${i}" hidden></span>
+      </div>
       <h3>${movie.title}</h3>
       <p class="year">${movie.year}</p>`;
     card.addEventListener("click", async () => {
@@ -126,7 +200,7 @@ function renderHigherLower(round) {
       board.querySelectorAll(".hl-card").forEach((c) => c.classList.add("locked"));
       try {
         const res = await submitAnswer({ choice: i });
-        applyScore(res.points);
+        syncProgress(res);
         revealHigherLower(round, res, i);
       } catch (err) {
         locked = false;
@@ -140,22 +214,27 @@ function renderHigherLower(round) {
 
 function revealHigherLower(round, res, chosen) {
   const cards = root.querySelectorAll(".hl-card");
-  const badge = document.getElementById("rating-badge");
-  const ratings = res.actual?.ratings || [round.movies.map(() => "?")[0], "?"];
+  const ratings = res.actual?.ratings || ["?", "?"];
+  // Ratings appear on each card (not an overlay covering the posters);
+  // the winner's pill is gold, the loser's dimmed.
   cards.forEach((card, i) => {
-    if (i === chosen && res.correct) card.classList.add("correct");
-    if (i === chosen && !res.correct) card.classList.add("wrong");
-    if (i !== chosen && res.correct) card.classList.add("wrong");
+    const pill = card.querySelector(".rating-pill");
+    pill.textContent = `★ ${ratings[i]}`;
+    pill.hidden = false;
+    if (ratings[i] >= ratings[1 - i]) {
+      pill.classList.add("win");
+      card.classList.add(i === chosen ? "correct" : "wrong");
+    } else {
+      card.classList.add(i === chosen ? "wrong" : "correct");
+    }
   });
-  badge.innerHTML = `${round.movies[0].title}: ${ratings[0]}<br>${round.movies[1].title}: ${ratings[1]}`;
-  badge.classList.add("show");
   showResult({ correct: res.correct, points: res.points, detail: null });
 }
 
 // ---- round type: blurred poster ----
 
-const BLUR_START = 40;
-const BLUR_STEP = 8;
+const BLUR_START = 30;
+const BLUR_STEP = 7;
 
 async function renderBlurred(round) {
   root.innerHTML = `
@@ -165,6 +244,7 @@ async function renderBlurred(round) {
     <div class="search-wrap">
       <input type="text" id="guess-input" placeholder="Type a movie title…" autocomplete="off" />
       <ul class="ac-list" id="ac-list" hidden></ul>
+      <button class="btn btn--primary" id="blur-submit">Submit guess</button>
     </div>`;
   const dots = document.getElementById("dots");
   for (let i = 0; i < 5; i++) {
@@ -175,45 +255,61 @@ async function renderBlurred(round) {
 
   const input = document.getElementById("guess-input");
   const list = document.getElementById("ac-list");
+  const submitBtn = document.getElementById("blur-submit");
   let titles = [];
   try {
     titles = (await api.pool.titles()).titles || [];
   } catch (err) {
     console.error("autocomplete titles unavailable", err);
   }
+  const titleOf = (t) => (typeof t === "string" ? t : t.title);
   let attempts = 0;
   let busy = false;
 
   function renderAc(query) {
     const matches = titles
-      .filter((t) => t.toLowerCase().includes(query.toLowerCase()))
+      .filter((t) => titleOf(t).toLowerCase().includes(query.toLowerCase()))
+      .sort((a, b) => titleOf(a).localeCompare(titleOf(b)))
       .slice(0, 8);
-    list.innerHTML = matches.map((t) => `<li>${t}</li>`).join("");
+    // "Title (Year)" labels; selecting fills the input with the title
+    // only — the submitted guess remains the title.
+    list.innerHTML = matches
+      .map((t) => `<li data-title="${titleOf(t).replace(/"/g, "&quot;")}">${titleOf(t)} (${typeof t === "string" ? "" : t.year})</li>`)
+      .join("");
     list.hidden = matches.length === 0 || query.length === 0;
   }
   input.addEventListener("input", () => renderAc(input.value.trim()));
   list.addEventListener("click", (e) => {
     if (e.target.tagName === "LI") {
-      input.value = e.target.textContent;
+      input.value = e.target.dataset.title;
       list.hidden = true;
+      input.focus();
     }
   });
   input.addEventListener("keydown", (e) => {
     if (e.key === "Enter") submitGuess();
   });
+  submitBtn.addEventListener("click", submitGuess);
 
   async function submitGuess() {
     const title = input.value.trim();
     if (!title || busy || attempts >= 5) return;
     busy = true;
+    submitBtn.disabled = true;
     try {
       const res = await submitAnswer({ title });
       attempts = res.attempts ?? attempts + 1;
+      syncProgress(res); // server-authoritative round/score, even mid-round
       if (res.correct) {
         finishBlurred(true, res);
         return;
       }
       markWrongAttempt(attempts);
+      if (attempts >= 5) {
+        // 5th wrong attempt: the round is over — reveal and move on.
+        finishBlurred(false, res);
+        return;
+      }
     } catch (err) {
       showError(err);
       busy = false;
@@ -222,6 +318,7 @@ async function renderBlurred(round) {
     input.value = "";
     list.hidden = true;
     busy = false;
+    submitBtn.disabled = false;
   }
 
   function markWrongAttempt(attemptNumber) {
@@ -231,24 +328,23 @@ async function renderBlurred(round) {
   }
 
   function finishBlurred(correct, res) {
+    // Round over — reveal the poster whether the guess was right or wrong.
     if (!correct) {
       dots.children[4]?.classList.add("used");
-      document.getElementById("blur-img").style.setProperty("--blur", "0px");
     }
+    document.getElementById("blur-img").style.setProperty("--blur", "0px");
     input.disabled = true;
-    applyScore(res.points);
+    list.hidden = true;
+    submitBtn.hidden = true;
     showResult({
       correct, points: res.points,
       detail: `The movie was “${res.actual?.title ?? "?"}”`,
     });
   }
 
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") submitGuess();
-  });
   list.addEventListener("keydown", (e) => {
     if (e.key === "Enter" && e.target.tagName === "LI") {
-      input.value = e.target.textContent;
+      input.value = e.target.dataset.title;
       list.hidden = true;
       submitGuess();
     }
@@ -268,25 +364,53 @@ function renderGuessYear(round) {
     <p class="year-label" id="year-label">${min}</p>
     <input type="range" class="year-slider" id="year-slider" min="${min}" max="${max}" value="${min}" />
     <div class="year-bounds"><span>${min}</span><span>${max}</span></div>
-    <button class="btn btn--primary next-btn" id="lock-year">Lock in</button>`;
+    <button class="btn btn--primary next-btn" id="year-submit">Submit</button>`;
 
   const slider = document.getElementById("year-slider");
   const label = document.getElementById("year-label");
+  const btn = document.getElementById("year-submit");
+  let answered = false;
   slider.addEventListener("input", () => { label.textContent = slider.value; });
 
-  document.getElementById("lock-year").addEventListener("click", async (e) => {
-    e.target.disabled = true;
+  // One button, two phases: Submit locks the guess in and shows the
+  // result; it then becomes Next round (Finish on the last round).
+  btn.addEventListener("click", async () => {
+    if (answered) {
+      // Second click: advance. roundIndex was already synced to the
+      // server's next round by syncProgress — do NOT increment again
+      // (that skipped a round and desynced client from server).
+      if (roundIndex > ROUNDS_PER_GAME) {
+        saveState(true);
+        import("./end.js").then((m) => m.showEnd());
+        return;
+      }
+      saveState();
+      loadRound();
+      return;
+    }
+    answered = true;
+    btn.disabled = true;
     slider.disabled = true;
     try {
       const res = await submitAnswer({ year: Number(slider.value) });
-      applyScore(res.points);
+      syncProgress(res);
+      const off = Math.abs(res.actual.year - Number(slider.value));
       const detail = res.actual?.year != null
-        ? `It was ${res.actual.year} (you were off by ${Math.abs(res.actual.year - Number(slider.value))}).`
+        ? `“${movie.title}” was released in ${res.actual.year} — you were off by ${off} year${off === 1 ? "" : "s"}.`
         : null;
-      showResult({ correct: res.correct, points: res.points, detail });
+      const line = document.createElement("p");
+      line.className = `result-line ${res.correct ? "good" : res.points > 0 ? "mid" : "bad"}`;
+      line.textContent = resultLabel(res.correct, res.points);
+      root.appendChild(line);
+      if (detail) {
+        const d = document.createElement("div");
+        d.className = "answer-card";
+        d.textContent = detail;
+        root.appendChild(d);
+      }
+      btn.textContent = roundIndex >= ROUNDS_PER_GAME ? "Finish" : "Next round";
+      btn.disabled = false;
     } catch (err) {
-      e.target.disabled = false;
-      slider.disabled = false;
       showError(err);
     }
   });
@@ -304,4 +428,15 @@ export function renderRound(round) {
   }
 }
 
-loadRound();
+// Resume on refresh — only when the player is mid-game: an unfinished,
+// non-exited session continues at its stored round. After a deliberate
+// ✕ (exited) or a finished run, a refresh stays on the landing page.
+(() => {
+  const m = activeMode();
+  if (!m) return;
+  const saved = readState(m);
+  const a = JSON.parse(localStorage.getItem(activeKey) || "{}");
+  if (saved && saved.session && !saved.finished && !a.exited) {
+    showGame(m);
+  }
+})();

@@ -49,13 +49,16 @@ func (h *FreeplayHandler) Answer(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Guess json.RawMessage `json:"guess"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
-	s, err := h.freeplay.Answer(r.Context(), playerIDFrom(r.Context()), r.PathValue("id"), n, body.Guess)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{"invalid body"})
+		return
+	}
+	_, outcome, err := h.freeplay.Answer(r.Context(), playerIDFrom(r.Context()), r.PathValue("id"), n, body.Guess)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s)
+	writeJSON(w, http.StatusOK, outcome)
 }
 
 // Result: GET /api/freeplay/{id}/result.

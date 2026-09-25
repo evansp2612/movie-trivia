@@ -3,6 +3,15 @@
 // /end URL and no dedicated replay control, per the PRD.
 import { api } from "./api.js";
 
+// The mode whose run just finished (recorded by game.js in game:active).
+function activeMode() {
+  const a = JSON.parse(localStorage.getItem("game:active") || "null");
+  return a ? a.mode : "daily";
+}
+function readState(m) {
+  return JSON.parse(localStorage.getItem(`game:${m}`) || "null");
+}
+
 export function renderEndScreen({ score, breakdown, leaderboard }) {
   const scoreEl = document.getElementById("final-score");
   const detail = document.getElementById("end-detail");
@@ -64,23 +73,33 @@ export async function showEnd() {
   // previous run, keeping the static score/detail nodes.
   root.querySelectorAll("input, button, ol, a").forEach((n) => n.remove());
 
+  document.querySelector("#end-view .card-close")?.addEventListener("click", () => {
+    localStorage.removeItem(`game:${activeMode()}`);
+    localStorage.removeItem("game:active");
+    document.getElementById("end-view").hidden = true;
+    document.getElementById("landing-view").hidden = false;
+    window.dispatchEvent(new CustomEvent("game:exit"));
+  });
+
   const back = document.createElement("a");
   back.className = "btn btn--outline";
   back.href = "/";
   back.textContent = "Return to main menu";
   back.addEventListener("click", (e) => {
     e.preventDefault();
-    sessionStorage.removeItem("game");
+    localStorage.removeItem(`game:${activeMode()}`);
+    localStorage.removeItem("game:active");
     document.getElementById("end-view").hidden = true;
     document.getElementById("landing-view").hidden = false;
     window.dispatchEvent(new CustomEvent("game:exit"));
   });
   root.appendChild(back);
 
-  const game = JSON.parse(sessionStorage.getItem("game") || "{}");
+  const m = activeMode();
+  const game = readState(m) || {};
   const fallbackScore = Number(game.score || 0);
   try {
-    const res = game.mode === "daily"
+    const res = m === "daily"
       ? await api.daily.result()
       : await api.freeplay.result(game.session);
     renderEndScreen(res);

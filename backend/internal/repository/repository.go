@@ -15,10 +15,19 @@ import (
 type SessionRepo interface {
 	Create(ctx context.Context, s *domain.Session) error
 	Get(ctx context.Context, id string) (*domain.Session, error)
-	Update(ctx context.Context, s *domain.Session) error
+	// Update persists session progress with an optimistic guard on the
+	// round that was answered: the write only lands if the stored row is
+	// still on answeredRound and not completed. answeredRound is the
+	// round index the caller just scored — for advancing rounds the row
+	// is updated to s.CurrentRound, for blurred mid-round attempts the
+	// round stays put and only Attempts change.
+	Update(ctx context.Context, s *domain.Session, answeredRound int) error
 	// DeleteStale garbage-collects abandoned Free Play sessions older
 	// than maxAge and returns the number removed.
 	DeleteStale(ctx context.Context, mode domain.GameMode, maxAge time.Duration) (int64, error)
+	// DeleteActiveByPlayer removes the player's incomplete sessions of a
+	// mode (used on Free Play replay: the new variant replaces the old).
+	DeleteActiveByPlayer(ctx context.Context, playerID string, mode domain.GameMode) (int64, error)
 	// TodaySession returns the player's session for the given game date,
 	// or domain.ErrNotFound.
 	TodaySession(ctx context.Context, playerID, gameDate string) (*domain.Session, error)

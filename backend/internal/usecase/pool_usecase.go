@@ -14,16 +14,40 @@ import (
 )
 
 const (
-	// MaxPoolSize caps the unified master pool at 80 unique movies.
-	MaxPoolSize = 80
-	// generationDelay is the sleep between movie iterations to stay
-	// under TMDB's 40 req/s rate limit (50ms per iteration).
-	generationDelay = 50 * time.Millisecond
+	// MaxPoolSize caps the unified master pool at 160 unique movies —
+	// a raw candidate store: movies with missing ratings or textless
+	// posters are included, and BuildRounds filters per round type.
+	MaxPoolSize = 160
+	// refreshWorkers is the bounded concurrency for per-movie detail
+	// fetches (external_ids, OMDb rating, images).
+	refreshWorkers = 8
+	// tmdbRateLimit keeps TMDB calls (~20/s) safely under its 40 req/s
+	// limit regardless of worker count. OMDb is daily-count limited,
+	// not rate limited, so it is not throttled.
+	tmdbRateLimit = 20 * time.Millisecond
 )
+
+// limiter admits TMDB calls at a fixed interval (token bucket).
+type limiter struct {
+	ticker *time.Ticker
+}
+
+func newLimiter(interval time.Duration) *limiter {
+	return &limiter{ticker: time.NewTicker(interval)}
+}
+
+func (l *limiter) wait(ctx context.Context) {
+	select {
+	case <-l.ticker.C:
+	case <-ctx.Done():
+	}
+}
+
+func (l *limiter) stop() { l.ticker.Stop() }
 
 // PoolUsecase serves the unified master pool. On a Redis cache miss it
 // applies the emergency failsafe: block the request and synchronously
-// regenerate the 80-movie batch.
+// regenerate the batch.
 type PoolUsecase struct {
 	cache   *rediscache.MasterPoolCache
 	ratings *rediscache.RatingCache
@@ -67,93 +91,149 @@ func (u *PoolUsecase) Candidates(ctx context.Context) ([]domain.Movie, error) {
 }
 
 // Refresh regenerates the unified master pool: TMDB popular + top_rated
-// (pages 1-2, English only, deduped by tmdb_id) from the provider, then
-// OMDb ratings and textless posters for the first 80 valid candidates.
-// Movies that fail rating lookup are skipped (higher/lower rounds need
-// a valid rating), so the loop walks beyond 80 candidates if necessary.
+// (pages 1-4, English only, deduped by tmdb_id), then per-movie details
+// (IMDb rating via OMDb, textless poster via TMDB images) fetched by a
+// bounded worker pool. Movies are kept even when details fail (zero
+// values) — BuildRounds filters by round-type suitability. Output
+// preserves candidate order.
 func (u *PoolUsecase) Refresh(ctx context.Context) ([]domain.Movie, error) {
 	u.mu.Lock()
 	defer u.mu.Unlock()
+	started := time.Now()
 
 	candidates, err := u.tmdb.FetchPool(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("pool: fetch candidates: %w", err)
 	}
+	if len(candidates) > MaxPoolSize {
+		candidates = candidates[:MaxPoolSize]
+	}
 
-	movies := make([]domain.Movie, 0, MaxPoolSize)
-	for i, c := range candidates {
-		if len(movies) >= MaxPoolSize {
-			break
-		}
-		if i > 0 {
-			time.Sleep(generationDelay)
-		}
+	lim := newLimiter(tmdbRateLimit)
+	defer lim.stop()
 
-		rating, ok, err := u.ratings.Get(ctx, c.ID)
-		if err != nil {
-			return nil, fmt.Errorf("pool: rating cache %d: %w", c.ID, err)
-		}
-		if !ok {
-			// Resolve the movie's IMDb ID via TMDB, then rate it on OMDb
-			// by that ID — OMDb's direct TMDB-ID mapping is unreliable.
-			imdbID, err := u.tmdb.FetchIMDBID(ctx, c.ID)
-			if err != nil {
-				log.Printf("pool: skipping tmdb %d (%s): %v", c.ID, c.Title, err)
-				continue
+	results := make([]domain.Movie, len(candidates))
+	var wg sync.WaitGroup
+	jobs := make(chan int)
+	// errCount tracks detail failures; workers keep the movie anyway.
+	var errCount int
+	var errMu sync.Mutex
+
+	for w := 0; w < refreshWorkers; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range jobs {
+				m := u.buildMovie(ctx, lim, candidates[i])
+				if m.degraded {
+					errMu.Lock()
+					errCount++
+					errMu.Unlock()
+				}
+				results[i] = m.movie
 			}
-			rating, err = u.omdb.RatingByIMDB(ctx, imdbID)
-			if err != nil {
-				log.Printf("pool: skipping tmdb %d (%s): %v", c.ID, c.Title, err)
-				continue
-			}
-			if err := u.ratings.Set(ctx, c.ID, rating); err != nil {
-				return nil, fmt.Errorf("pool: cache rating %d: %w", c.ID, err)
-			}
-		}
+		}()
+	}
+	for i := range candidates {
+		jobs <- i
+	}
+	close(jobs)
+	wg.Wait()
 
-		year := 0
-		if len(c.ReleaseDate) >= 4 {
-			fmt.Sscanf(c.ReleaseDate[:4], "%d", &year)
+	movies := make([]domain.Movie, 0, len(results))
+	for _, m := range results {
+		if m.TMDBID != 0 {
+			movies = append(movies, m)
 		}
-		textless, err := u.tmdb.FetchTextlessPoster(ctx, c.ID)
-		if err != nil {
-			log.Printf("pool: tmdb %d (%s): textless poster: %v", c.ID, c.Title, err)
-		}
-
-		movies = append(movies, domain.Movie{
-			TMDBID:            c.ID,
-			Title:             c.Title,
-			Year:              year,
-			PosterURL:         tmdb.ImageURL(c.PosterPath),
-			TextlessPosterURL: tmdb.ImageURL(textless),
-			IMDBRating:        rating,
-		})
 	}
 
 	if len(movies) == 0 {
 		return nil, domain.ErrPoolEmpty
 	}
+	if errCount > 0 {
+		log.Printf("pool: %d/%d movies have degraded details (no rating and/or textless poster)", errCount, len(movies))
+	}
 	if len(movies) < MaxPoolSize {
-		log.Printf("pool: only %d/%d movies valid this cycle", len(movies), MaxPoolSize)
+		log.Printf("pool: %d/%d candidates kept this cycle", len(movies), MaxPoolSize)
 	}
 
 	if err := u.cache.Set(ctx, movies); err != nil {
 		return nil, fmt.Errorf("pool: cache batch: %w", err)
 	}
-	log.Printf("pool: refreshed master pool with %d movies", len(movies))
+	log.Printf("pool: refreshed master pool with %d movies in %s", len(movies), time.Since(started).Round(time.Millisecond))
 	return movies, nil
+}
+
+type buildResult struct {
+	movie    domain.Movie
+	degraded bool
+}
+
+// buildMovie assembles one pool movie: cached-or-fetched IMDb rating,
+// textless poster, year. Failures degrade the movie (zero values) but
+// never drop it — suitability filtering is BuildRounds' job.
+func (u *PoolUsecase) buildMovie(ctx context.Context, lim *limiter, c tmdb.Movie) buildResult {
+	rating := 0.0
+	if r, ok, err := u.ratings.Get(ctx, c.ID); err != nil {
+		log.Printf("pool: rating cache %d: %v", c.ID, err)
+	} else if ok {
+		rating = r
+	} else {
+		// Resolve the IMDb ID via TMDB, then rate on OMDb by that ID —
+		// OMDb's direct TMDB-ID mapping is unreliable.
+		lim.wait(ctx)
+		imdbID, err := u.tmdb.FetchIMDBID(ctx, c.ID)
+		if err != nil {
+			log.Printf("pool: tmdb %d (%s): external ids: %v", c.ID, c.Title, err)
+		} else if r, err := u.omdb.RatingByIMDB(ctx, imdbID); err != nil {
+			log.Printf("pool: omdb %d (%s, %s): %v", c.ID, c.Title, imdbID, err)
+		} else {
+			rating = r
+			if err := u.ratings.Set(ctx, c.ID, rating); err != nil {
+				log.Printf("pool: cache rating %d: %v", c.ID, err)
+			}
+		}
+	}
+
+	lim.wait(ctx)
+	textless, err := u.tmdb.FetchTextlessPoster(ctx, c.ID)
+	if err != nil {
+		log.Printf("pool: tmdb %d (%s): textless poster: %v", c.ID, c.Title, err)
+	}
+
+	year := 0
+	if len(c.ReleaseDate) >= 4 {
+		fmt.Sscanf(c.ReleaseDate[:4], "%d", &year)
+	}
+	m := domain.Movie{
+		TMDBID:            c.ID,
+		Title:             c.Title,
+		Year:              year,
+		PosterURL:         tmdb.ImageURL(c.PosterPath),
+		TextlessPosterURL: tmdb.ImageURL(textless),
+		IMDBRating:        rating,
+	}
+	return buildResult{movie: m, degraded: m.IMDBRating == 0 || m.TextlessPosterURL == ""}
 }
 
 // Titles returns the lightweight title list powering the frontend
 // auto-complete search (GET /api/pool/titles).
-func (u *PoolUsecase) Titles(ctx context.Context) ([]string, error) {
+// PoolTitle is one auto-complete entry: title plus release year, so
+// the dropdown can disambiguate remakes and show "Title (Year)".
+type PoolTitle struct {
+	Title string `json:"title"`
+	Year  int    `json:"year"`
+}
+
+// Titles returns the lightweight auto-complete list (GET /api/pool/titles).
+func (u *PoolUsecase) Titles(ctx context.Context) ([]PoolTitle, error) {
 	movies, err := u.Candidates(ctx)
 	if err != nil {
 		return nil, err
 	}
-	titles := make([]string, 0, len(movies))
+	titles := make([]PoolTitle, 0, len(movies))
 	for _, m := range movies {
-		titles = append(titles, m.Title)
+		titles = append(titles, PoolTitle{Title: m.Title, Year: m.Year})
 	}
 	return titles, nil
 }

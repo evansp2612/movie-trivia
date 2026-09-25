@@ -52,7 +52,8 @@ func (h *DailyHandler) Round(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, publicRound(round))
 }
 
-// Answer: POST /api/daily/round/{n}/answer.
+// Answer: POST /api/daily/round/{n}/answer — responds with the round
+// outcome (correct, points, reveal data), not the session.
 func (h *DailyHandler) Answer(w http.ResponseWriter, r *http.Request) {
 	n, err := roundIndex(r)
 	if err != nil {
@@ -62,13 +63,16 @@ func (h *DailyHandler) Answer(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Guess json.RawMessage `json:"guess"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
-	s, err := h.daily.Answer(r.Context(), playerIDFrom(r.Context()), n, body.Guess)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{"invalid body"})
+		return
+	}
+	_, outcome, err := h.daily.Answer(r.Context(), playerIDFrom(r.Context()), n, body.Guess)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s)
+	writeJSON(w, http.StatusOK, outcome)
 }
 
 // Result: GET /api/daily/result.

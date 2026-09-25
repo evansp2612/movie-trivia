@@ -21,6 +21,11 @@ type Session struct {
 	Attempts     int       `json:"attempts"` // attempts spent on the current round
 	StartedAt    time.Time `json:"started_at"`
 	GameDate     string    `json:"game_date,omitempty"` // daily only, YYYY-MM-DD
+
+	// Rounds is the session's fixed 10-round variant (Free Play only;
+	// daily sessions keep theirs in daily_games). Never serialized to
+	// clients — round payloads go through the handler DTO layer.
+	Rounds []Round `json:"-"`
 }
 
 // Completed reports whether all rounds have been answered. A daily
