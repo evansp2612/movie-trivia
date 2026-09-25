@@ -14,6 +14,9 @@ function readState(m) {
 function writeState(m, state) {
   localStorage.setItem(`game:${m}`, JSON.stringify(state));
 }
+function setActiveMode(m, exited) {
+  localStorage.setItem("game:active", JSON.stringify({ mode: m, exited }));
+}
 
 export function renderEndScreen({ score, breakdown }) {
   const scoreEl = document.getElementById("final-score");
