@@ -66,18 +66,22 @@ func (u *FreeplayUsecase) ownedSession(ctx context.Context, playerID, sessionID 
 	return s, nil
 }
 
-func (u *FreeplayUsecase) Round(ctx context.Context, playerID, sessionID string, n int) (*domain.Round, error) {
+func (u *FreeplayUsecase) Round(ctx context.Context, playerID, sessionID string, n int) (*domain.Round, int, error) {
 	s, err := u.ownedSession(ctx, playerID, sessionID)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if s.IsCompleted {
-		return nil, domain.ErrSessionCompleted
+		return nil, 0, domain.ErrSessionCompleted
 	}
 	if n < 1 || n > len(s.Rounds) {
-		return nil, domain.ErrNotFound
+		return nil, 0, domain.ErrNotFound
 	}
-	return &s.Rounds[n-1], nil
+	attempts := s.Attempts
+	if s.CurrentRound != n {
+		attempts = 0
+	}
+	return &s.Rounds[n-1], attempts, nil
 }
 
 func (u *FreeplayUsecase) Answer(ctx context.Context, playerID, sessionID string, n int, raw json.RawMessage) (*domain.Session, *domain.AnswerOutcome, error) {

@@ -246,7 +246,10 @@ async function renderBlurred(round) {
     <div class="search-wrap">
       <input type="text" id="guess-input" placeholder="Type a movie title…" autocomplete="off" />
       <ul class="ac-list" id="ac-list" hidden></ul>
+    </div>
+    <div class="blur-actions">
       <button class="btn btn--primary" id="blur-submit">Submit</button>
+      <button class="btn btn--outline" id="blur-skip">Skip</button>
     </div>`;
   const dots = document.getElementById("dots");
   for (let i = 0; i < 5; i++) {
@@ -258,6 +261,11 @@ async function renderBlurred(round) {
   const input = document.getElementById("guess-input");
   const list = document.getElementById("ac-list");
   const submitBtn = document.getElementById("blur-submit");
+  const skipBtn = document.getElementById("blur-skip");
+  // Restore mid-round state after a reload: the server's attempt count
+  // drives the dots, blur level, and Skip visibility.
+  let attempts = Math.min(round.attempts ?? 0, 5);
+  for (let i = 1; i <= attempts; i++) markWrongAttempt(i);
   let titles = [];
   try {
     titles = (await api.pool.titles()).titles || [];
@@ -265,8 +273,9 @@ async function renderBlurred(round) {
     console.error("autocomplete titles unavailable", err);
   }
   const titleOf = (t) => (typeof t === "string" ? t : t.title);
-  let attempts = 0;
   let busy = false;
+  const updateSkipVisibility = () => { skipBtn.hidden = attempts >= 4; };
+  updateSkipVisibility();
 
   function renderAc(query) {
     const matches = titles
@@ -292,12 +301,42 @@ async function renderBlurred(round) {
     if (e.key === "Enter") submitGuess();
   });
   submitBtn.addEventListener("click", submitGuess);
+  // Skip = give up on this attempt without a guess. It scores 0 and
+  // burns an attempt exactly like a wrong answer (empty title), and
+  // disappears on the last attempt where only a guess can score.
+  skipBtn.addEventListener("click", async () => {
+    if (busy || attempts >= 4) return;
+    busy = true;
+    submitBtn.disabled = true;
+    skipBtn.disabled = true;
+    try {
+      const res = await submitAnswer({ title: "" });
+      attempts = res.attempts ?? attempts + 1;
+      syncProgress(res);
+      markWrongAttempt(attempts);
+      updateSkipVisibility();
+      if (attempts >= 5) {
+        finishBlurred(false, res);
+        return;
+      }
+    } catch (err) {
+      showError(err);
+      busy = false;
+      skipBtn.disabled = false;
+      submitBtn.disabled = false;
+      return;
+    }
+    busy = false;
+    skipBtn.disabled = false;
+    submitBtn.disabled = false;
+  });
 
   async function submitGuess() {
     const title = input.value.trim();
     if (!title || busy || attempts >= 5) return;
     busy = true;
     submitBtn.disabled = true;
+    skipBtn.disabled = true;
     try {
       const res = await submitAnswer({ title });
       attempts = res.attempts ?? attempts + 1;
@@ -307,6 +346,7 @@ async function renderBlurred(round) {
         return;
       }
       markWrongAttempt(attempts);
+      updateSkipVisibility();
       if (attempts >= 5) {
         // 5th wrong attempt: the round is over — reveal and move on.
         finishBlurred(false, res);
@@ -321,6 +361,7 @@ async function renderBlurred(round) {
     list.hidden = true;
     busy = false;
     submitBtn.disabled = false;
+    updateSkipVisibility();
   }
 
   function markWrongAttempt(attemptNumber) {
@@ -338,6 +379,7 @@ async function renderBlurred(round) {
     input.disabled = true;
     list.hidden = true;
     submitBtn.hidden = true;
+    skipBtn.hidden = true;
     showResult({
       correct, points: res.points,
       detail: `The movie was “${res.actual?.title ?? "?"}”`,

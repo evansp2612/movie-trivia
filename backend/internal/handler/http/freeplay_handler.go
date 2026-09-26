@@ -31,12 +31,12 @@ func (h *FreeplayHandler) Round(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorBody{"invalid round index"})
 		return
 	}
-	round, err := h.freeplay.Round(r.Context(), playerIDFrom(r.Context()), r.PathValue("id"), n)
+	round, attempts, err := h.freeplay.Round(r.Context(), playerIDFrom(r.Context()), r.PathValue("id"), n)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, publicRound(round))
+	writeJSON(w, http.StatusOK, publicRound(round, attempts))
 }
 
 // Answer: POST /api/freeplay/{id}/round/{n}/answer.

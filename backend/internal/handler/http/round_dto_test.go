@@ -17,7 +17,7 @@ func TestPublicRoundRedactsRating(t *testing.T) {
 		},
 		YearMin: 1990, YearMax: 2026,
 	}
-	got := publicRound(orig).(*domain.Round)
+	got := publicRound(orig, 0).(*domain.Round)
 
 	for i, m := range got.Movies {
 		if m.IMDBRating != 0 {
@@ -48,7 +48,7 @@ func TestPublicRoundGuessYearRedactsAnswerYear(t *testing.T) {
 		},
 		YearMin: 1957, YearMax: 2026,
 	}
-	b, err := json.Marshal(publicRound(orig))
+	b, err := json.Marshal(publicRound(orig, 0))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestPublicRoundBlurredHidesAnswer(t *testing.T) {
 		},
 		YearMin: 1957, YearMax: 2026,
 	}
-	b, err := json.Marshal(publicRound(orig))
+	b, err := json.Marshal(publicRound(orig, 0))
 	if err != nil {
 		t.Fatal(err)
 	}

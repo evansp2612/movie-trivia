@@ -624,11 +624,31 @@ main {
   transform: translateX(-50%) scale(1.1);
 }
 
-/* Blurred: submit button under the search input. */
+.blur-actions {
+  display: flex;
+  gap: 0.6rem;
+  max-width: 360px;
+  margin: 0.75rem auto 0;
+}
+
+.blur-actions .btn {
+  flex: 1;
+  margin: 0;
+}
+
+.blur-actions #blur-skip {
+  background: transparent;
+  border: 2px solid var(--text-dim);
+  color: var(--text-dim);
+}
+
+.blur-actions #blur-skip:hover:not(:disabled) {
+  border-color: var(--error);
+  color: var(--error);
+}
+
 #blur-submit {
-  width: 100%;
-  margin-top: 0.75rem;
-  margin-bottom: 0;
+  flex: 2;
 }
 
 .close-btn,

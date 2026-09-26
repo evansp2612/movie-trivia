@@ -18,7 +18,7 @@ import (
 //
 // The stored round (daily_games / session) is never mutated; admin
 // reveal keeps the full data.
-func publicRound(r *domain.Round) any {
+func publicRound(r *domain.Round, attempts int) any {
 	if r == nil {
 		return nil
 	}
@@ -32,6 +32,7 @@ func publicRound(r *domain.Round) any {
 			Index:     r.Index,
 			Type:      r.Type,
 			PosterURL: posterURL,
+			Attempts:  attempts,
 		}
 	}
 
@@ -43,6 +44,9 @@ func publicRound(r *domain.Round) any {
 		// the client never needs it — all scoring is server-side.
 		m.TMDBID = 0
 		m.IMDBRating = 0
+		// The textless poster is only meaningful for blurred rounds;
+		// other round types keep just the standard poster.
+		m.TextlessPosterURL = ""
 		if r.Type == domain.RoundGuessYear {
 			m.Year = 0
 		}
@@ -55,4 +59,5 @@ type blurredRoundPayload struct {
 	Index     int              `json:"index"`
 	Type      domain.RoundType `json:"type"`
 	PosterURL string           `json:"poster_url"`
+	Attempts  int              `json:"attempts"` // already spent, for mid-round reloads
 }

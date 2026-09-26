@@ -65,23 +65,28 @@ func (u *DailyUsecase) Start(ctx context.Context, playerID string) (*domain.Sess
 	return s, u.sessions.UpsertStatus(ctx, playerID, gameDate, false)
 }
 
-// Round returns round n of today's fixed set.
-func (u *DailyUsecase) Round(ctx context.Context, playerID string, n int) (*domain.Round, error) {
+// Round returns round n of today's fixed set, plus the attempts already
+// spent on it (so a mid-round reload restores the attempt UI).
+func (u *DailyUsecase) Round(ctx context.Context, playerID string, n int) (*domain.Round, int, error) {
 	s, err := u.sessions.TodaySession(ctx, playerID, u.today())
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if s.IsCompleted {
-		return nil, domain.ErrSessionCompleted
+		return nil, 0, domain.ErrSessionCompleted
 	}
 	rounds, err := u.dailyGames.Get(ctx, u.today())
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if n < 1 || n > len(rounds) {
-		return nil, domain.ErrNotFound
+		return nil, 0, domain.ErrNotFound
 	}
-	return &rounds[n-1], nil
+	attempts := s.Attempts
+	if s.CurrentRound != n {
+		attempts = 0 // already-answered rounds show a clean slate
+	}
+	return &rounds[n-1], attempts, nil
 }
 
 // Answer evaluates a guess against today's fixed set, scores it,

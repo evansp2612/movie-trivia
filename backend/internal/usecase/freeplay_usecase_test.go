@@ -127,7 +127,7 @@ func TestRoundServesStoredVariant(t *testing.T) {
 	s, _ := u.Start(context.Background(), playerA)
 
 	for _, n := range []int{1, 5, 10} {
-		got, err := u.Round(context.Background(), playerA, s.ID, n)
+		got, _, err := u.Round(context.Background(), playerA, s.ID, n)
 		if err != nil {
 			t.Fatalf("round %d: %v", n, err)
 		}
@@ -137,15 +137,15 @@ func TestRoundServesStoredVariant(t *testing.T) {
 	}
 
 	// Out of range.
-	if _, err := u.Round(context.Background(), playerA, s.ID, 0); err != domain.ErrNotFound {
+	if _, _, err := u.Round(context.Background(), playerA, s.ID, 0); err != domain.ErrNotFound {
 		t.Fatalf("round 0: want ErrNotFound, got %v", err)
 	}
-	if _, err := u.Round(context.Background(), playerA, s.ID, 11); err != domain.ErrNotFound {
+	if _, _, err := u.Round(context.Background(), playerA, s.ID, 11); err != domain.ErrNotFound {
 		t.Fatalf("round 11: want ErrNotFound, got %v", err)
 	}
 
 	// Unknown session.
-	if _, err := u.Round(context.Background(), playerA, "nope", 1); err != domain.ErrNotFound {
+	if _, _, err := u.Round(context.Background(), playerA, "nope", 1); err != domain.ErrNotFound {
 		t.Fatalf("unknown session: want ErrNotFound, got %v", err)
 	}
 
@@ -156,7 +156,7 @@ func TestRoundForeignSessionIsNotFound(t *testing.T) {
 	u, _ := newTestUsecase(t)
 	s, _ := u.Start(context.Background(), playerA)
 
-	if _, err := u.Round(context.Background(), playerB, s.ID, 1); err != domain.ErrNotFound {
+	if _, _, err := u.Round(context.Background(), playerB, s.ID, 1); err != domain.ErrNotFound {
 		t.Fatalf("foreign player must get ErrNotFound, got %v", err)
 	}
 }
@@ -166,7 +166,7 @@ func TestRoundCompletedSessionRejected(t *testing.T) {
 	s, _ := u.Start(context.Background(), playerA)
 	repo.byID[s.ID].IsCompleted = true
 
-	if _, err := u.Round(context.Background(), playerA, s.ID, 1); err != domain.ErrSessionCompleted {
+	if _, _, err := u.Round(context.Background(), playerA, s.ID, 1); err != domain.ErrSessionCompleted {
 		t.Fatalf("completed session: want ErrSessionCompleted, got %v", err)
 	}
 }

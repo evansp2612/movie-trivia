@@ -49,12 +49,12 @@ func (h *DailyHandler) Round(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorBody{"invalid round index"})
 		return
 	}
-	round, err := h.daily.Round(r.Context(), playerIDFrom(r.Context()), n)
+	round, attempts, err := h.daily.Round(r.Context(), playerIDFrom(r.Context()), n)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, publicRound(round))
+	writeJSON(w, http.StatusOK, publicRound(round, attempts))
 }
 
 // Answer: POST /api/daily/round/{n}/answer — responds with the round
