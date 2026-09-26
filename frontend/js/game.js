@@ -472,19 +472,17 @@ export function renderRound(round) {
   }
 }
 
-// Resume on refresh — wherever the player left off:
-//   finished session        → the leaderboard/end view,
-//   unfinished, mid-game    → the game at the stored round,
-//   deliberately exited (✕) → the landing page.
+// Resume on refresh — only when the player is mid-game on an
+// unfinished, non-exited session: it continues at the stored round.
+// A finished session does NOT reopen the end view — the landing page's
+// loadStatus (server-driven) offers the Leaderboard button instead, and
+// after midnight it correctly offers a fresh Game of the Day.
 (() => {
   const m = activeMode();
   if (!m) return;
   const saved = readState(m);
   const a = JSON.parse(localStorage.getItem(activeKey) || "{}");
-  if (!saved || !saved.session) return;
-  if (saved.finished) {
-    import("./end.js").then((mod) => mod.showEnd());
-  } else if (!a.exited) {
+  if (saved && saved.session && !saved.finished && !a.exited) {
     showGame(m);
   }
 })();

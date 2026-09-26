@@ -225,12 +225,14 @@ export async function showEnd() {
   const game = readState(m) || {};
   const fallbackScore = Number(game.score || 0);
   try {
-    const res = m === "daily"
-      ? await api.daily.result()
-      : await api.freeplay.result(game.session);
-    renderEndScreen(res);
     if (m === "daily") {
-      await renderLeaderboard(root, res.score);
+      const status = await api.daily.status();
+      const res = await api.daily.result();
+      renderEndScreen(res);
+      await renderLeaderboard(root, res.score, status.submitted);
+    } else {
+      const res = await api.freeplay.result(game.session);
+      renderEndScreen(res);
     }
   } catch (err) {
     // Result endpoint failure: show the locally tracked score so the

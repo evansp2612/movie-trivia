@@ -5,31 +5,38 @@ const dailyBtn = document.getElementById("play-daily");
 const freeplayBtn = document.getElementById("play-freeplay");
 const meta = document.getElementById("daily-meta");
 
-// The daily run is finished (kept in localStorage with finished=true
-// after the end screen) → the GOTD button becomes a Leaderboard button
-// so the player can submit or view their result. Whether they already
-// submitted or not doesn't matter: the board page handles both.
-function dailyFinished() {
-  const saved = JSON.parse(localStorage.getItem("game:daily") || "null");
-  return !!(saved && saved.finished);
-}
+// The button label follows the SERVER's status (/api/daily/status →
+// is_completed), never a stale localStorage flag: after midnight the
+// server reports the new day as not completed, so the button flips back
+// to "Game of the Day" and the player can play again.
+let serverCompleted = false;
 
 function setDailyCompleted(finished) {
-  if (finished) {
-    dailyBtn.disabled = false;
-    dailyBtn.querySelector(".btn__check").hidden = true;
-    dailyBtn.querySelector(".btn__label").textContent = "Leaderboard";
-  } else {
-    dailyBtn.disabled = false;
-    dailyBtn.querySelector(".btn__check").hidden = true;
-    dailyBtn.querySelector(".btn__label").textContent = "Game of the Day";
+  serverCompleted = finished;
+  dailyBtn.disabled = false;
+  dailyBtn.querySelector(".btn__check").hidden = true;
+  dailyBtn.querySelector(".btn__label").textContent = finished
+    ? "Leaderboard"
+    : "Game of the Day";
+}
+
+function clearStaleDailyState() {
+  // Yesterday's finished run: the server says today is not completed,
+  // so the saved state can only mislead (stale Leaderboard button,
+  // stale auto-resume). An unfinished run (finished=false) is kept —
+  // it resumes server-side via /daily/start.
+  const saved = JSON.parse(localStorage.getItem("game:daily") || "null");
+  if (saved && saved.finished) {
+    localStorage.removeItem("game:daily");
   }
 }
 
 async function loadStatus() {
-  setDailyCompleted(dailyFinished());
+  setDailyCompleted(serverCompleted);
   try {
-    await api.daily.status();
+    const status = await api.daily.status();
+    clearStaleDailyState();
+    setDailyCompleted(status.is_completed);
     meta.textContent = "";
   } catch (err) {
     meta.textContent = "Could not reach the server. Is the API running?";
@@ -53,9 +60,9 @@ function startGame(m, session) {
 }
 
 dailyBtn.addEventListener("click", async () => {
-  // Finished run → the button opens the leaderboard (score + top 10 +
-  // submit form if the player hasn't submitted yet).
-  if (dailyFinished()) {
+  // Completed run (per the server) → the button opens the leaderboard
+  // (score + top 10 + submit form if the player hasn't submitted yet).
+  if (serverCompleted) {
     localStorage.setItem("game:active", JSON.stringify({ mode: "daily", exited: false }));
     const m = await import("./end.js");
     await m.showEnd();
@@ -67,11 +74,7 @@ dailyBtn.addEventListener("click", async () => {
     startGame("daily", session);
   } catch (err) {
     if (err instanceof APIError && err.status === 409) {
-      // Completed but the local flag was missing (e.g. played in
-      // another tab): record it and offer the Leaderboard button.
-      const saved = JSON.parse(localStorage.getItem("game:daily") || "null");
-      if (saved) saved.finished = true;
-      localStorage.setItem("game:daily", JSON.stringify(saved ?? { mode: "daily", finished: true }));
+      // Completed but the server flag hadn't reached this tab yet.
       setDailyCompleted(true);
     } else {
       meta.textContent = err.message;
@@ -126,6 +129,13 @@ window.addEventListener("game:exit", () => {
   dailyBtn.disabled = false;
   freeplayBtn.disabled = false;
   loadStatus();
+});
+
+// A tab left open across midnight: re-check the server status as soon
+// as the player looks at the tab again, so the button flips back to
+// "Game of the Day" without a manual refresh.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) loadStatus();
 });
 
 document.getElementById("hud-close")?.addEventListener("click", () => {
