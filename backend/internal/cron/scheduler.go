@@ -3,7 +3,6 @@ package cron
 import (
 	"context"
 	"log"
-	"sync"
 	"time"
 
 	"movie-trivia/internal/domain"
@@ -54,7 +53,6 @@ type Scheduler struct {
 	loc      *time.Location
 	log      *log.Logger
 
-	once        sync.Once // RunIfNeeded checks at most once per process instance
 	lastAttempt time.Time // throttles the missing-game self-heal re-runs
 }
 
@@ -167,28 +165,27 @@ func (s *Scheduler) ForceRun(ctx context.Context) (any, error) {
 }
 
 // RunIfNeeded triggers the daily chain if it has not run today. Called
-// from the request middleware: the 00:00 cron ping (or the first player
-// request of the day) boots the function and kicks the chain off in the
-// background — requests never block on it. The sync.Once bounds each
-// process instance to a single check.
+// RunIfNeeded makes sure the daily chain has run today. Called from the
+// request middleware on every API request (cheap: one Redis GET, plus a
+// throttled SQL EXISTS): the 00:00 cron ping (or the first player
+// request of the day) claims the day-marker and boots the chain in the
+// background — requests never block on it. If a claimed chain died
+// before generating the game, the throttled self-heal re-runs it.
 func (s *Scheduler) RunIfNeeded(ctx context.Context) {
-	s.once.Do(func() {
-		date := s.today()
-		claimed, err := s.marker.ClaimDailyRun(ctx, date)
-		if err != nil {
-			s.log.Printf("cron: day marker: %v", err)
-			return
-		}
-		if !claimed {
-			s.log.Printf("cron: daily run for %s already claimed", date)
-			return
-		}
+	date := s.today()
+	claimed, err := s.marker.ClaimDailyRun(ctx, date)
+	if err != nil {
+		s.log.Printf("cron: day marker: %v", err)
+		return
+	}
+	if claimed {
+		// We own today's run.
+		s.log.Printf("cron: daily run for %s claimed — starting", date)
 		s.startDailyRun()
-	})
-
-	// Self-heal: the marker being claimed only proves the chain STARTED
-	// today — if it died before generating the game, re-run it (throttled
-	// so concurrent requests don't stampede).
+		return
+	}
+	// Someone else already claimed today; make sure the game actually
+	// exists (the claiming run may have died before generating it).
 	s.healIfGameMissing(ctx)
 }
 

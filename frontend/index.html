@@ -16,10 +16,11 @@
   <!-- Landing view (the only player-facing URL) -->
   <main class="landing__card" id="landing-view">
     <h1 class="landing__title">Movie Trivia</h1>
-    <p class="landing__tagline">Test your knowledge.</p>
+    <p class="landing__tagline">Test your knowledge</p>
 
     <button id="play-daily" class="btn btn--primary" disabled>
       <span class="btn__label">Game of the Day</span>
+      <span class="spinner" hidden aria-hidden="true"></span>
       <span class="btn__check" hidden aria-hidden="true">&#10003;</span>
     </button>
 
@@ -27,7 +28,7 @@
       Free Play
     </button>
 
-    <p id="daily-meta" class="landing__meta" aria-live="polite">Checking today&rsquo;s game&hellip;</p>
+    <p id="daily-meta" class="landing__meta" aria-live="polite"></p>
   </main>
 
   <!-- Game view -->
@@ -36,7 +37,8 @@
       <span id="hud-round">Round — of 10</span>
       <span class="hud-right">
         <span id="hud-score">Score 0</span>
-        <button id="hud-close" class="close-btn" title="Close and return to menu" aria-label="Close and return to menu">&#10005;</button>
+        <button id="hud-close" class="close-btn" title="Close and return to menu"
+          aria-label="Close and return to menu">&#10005;</button>
       </span>
     </header>
     <section id="round-root" class="game__stage">

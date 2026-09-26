@@ -13,8 +13,8 @@ let serverCompleted = false;
 
 function setDailyCompleted(finished) {
   serverCompleted = finished;
+  setDailyLoading(false); // normal face: label visible, spinner hidden
   dailyBtn.disabled = false;
-  dailyBtn.querySelector(".btn__check").hidden = true;
   dailyBtn.querySelector(".btn__label").textContent = finished
     ? "Leaderboard"
     : "Game of the Day";
@@ -39,7 +39,7 @@ async function loadStatus() {
     setDailyCompleted(status.is_completed);
     meta.textContent = "";
   } catch (err) {
-    meta.textContent = "Could not reach the server. Is the API running?";
+    meta.textContent = "Could not reach the server.";
     console.error(err);
   }
 }
@@ -59,6 +59,20 @@ function startGame(m, session) {
   showGame(m);
 }
 
+// Loading state for the GOTD button: hides the label/check and shows
+// the spinner ring. restored() puts the normal label back.
+const labelEl = dailyBtn.querySelector(".btn__label");
+const checkEl = dailyBtn.querySelector(".btn__check");
+const spinnerEl = dailyBtn.querySelector(".spinner");
+
+function setDailyLoading(loading) {
+  dailyBtn.disabled = loading;
+  labelEl.hidden = loading;
+  spinnerEl.hidden = !loading;
+}
+
+let dailyPollAborted = false;
+
 dailyBtn.addEventListener("click", async () => {
   // Completed run (per the server) → the button opens the leaderboard
   // (score + top 10 + submit form if the player hasn't submitted yet).
@@ -68,33 +82,37 @@ dailyBtn.addEventListener("click", async () => {
     await m.showEnd();
     return;
   }
-  dailyBtn.disabled = true;
+  setDailyLoading(true);
   try {
     const session = await startDailyWithRetry();
+    setDailyLoading(false);
     startGame("daily", session);
   } catch (err) {
     if (err instanceof APIError && err.status === 409) {
       // Completed but the server flag hadn't reached this tab yet.
       setDailyCompleted(true);
-    } else {
+    } else if (err.status !== 0) {
       meta.textContent = err.message;
     }
-    dailyBtn.disabled = false;
+    setDailyLoading(false);
     console.error(err);
   }
 });
 
 // Right after midnight the daily chain (pool refresh + game generation)
 // may still be running: /daily/start then answers 503 "preparing".
-// Poll every 3s until the game is ready (~60s cap) instead of failing.
-async function startDailyWithRetry(attempts = 20) {
+// Poll every 1s until the game is ready (~60s cap). Free Play during
+// the poll aborts it cleanly — the daily session simply sits unfinished.
+async function startDailyWithRetry(attempts = 60) {
+  dailyPollAborted = false;
   for (let i = 0; i < attempts; i++) {
+    if (dailyPollAborted) throw new APIError("aborted", 0);
     try {
       return await api.daily.start();
     } catch (err) {
+      if (dailyPollAborted) throw new APIError("aborted", 0);
       if (err instanceof APIError && err.status === 503 && i < attempts - 1) {
-        meta.textContent = "Preparing game…";
-        await new Promise((r) => setTimeout(r, 3000));
+        await new Promise((r) => setTimeout(r, 1000));
         continue;
       }
       throw err;
@@ -105,6 +123,8 @@ async function startDailyWithRetry(attempts = 20) {
 
 freeplayBtn.addEventListener("click", async () => {
   freeplayBtn.disabled = true;
+  // A pending GOTD poll is abandoned — Free Play always wins.
+  dailyPollAborted = true;
   // Resume an unfinished Free Play session if one is saved (e.g. the
   // player left via the ✕); only start a new variant otherwise.
   const saved = JSON.parse(localStorage.getItem("game:freeplay") || "null");
@@ -126,6 +146,7 @@ freeplayBtn.addEventListener("click", async () => {
 // Returning from a game or the leaderboard (✕ or back link): re-enable
 // the start buttons and refresh the daily status / button label.
 window.addEventListener("game:exit", () => {
+  setDailyLoading(false);
   dailyBtn.disabled = false;
   freeplayBtn.disabled = false;
   loadStatus();
