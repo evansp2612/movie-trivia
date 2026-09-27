@@ -4,7 +4,12 @@
 // runs once per function instance via sync.Once — warm instances reuse
 // it, cold instances initialize on their first request. Panics surface
 // as function errors.
-package main
+//
+// Package name: Vercel's Go builder requires `package handler` (with the
+// exported Handler function) for this function shape — `package main`
+// is rejected at build time. Locally it compiles as an ordinary
+// library package; only Vercel's generated wrapper calls it.
+package handler
 
 import (
 	"net/http"
@@ -14,19 +19,15 @@ import (
 )
 
 var (
-	initOnce sync.Once
-	handler  http.Handler
+	initOnce   sync.Once
+	appHandler http.Handler
 )
 
 // Handler is the Vercel function entry point.
 func Handler(w http.ResponseWriter, r *http.Request) {
 	initOnce.Do(func() {
 		a := app.Build(r.Context())
-		handler = a.Handler
+		appHandler = a.Handler
 	})
-	handler.ServeHTTP(w, r)
+	appHandler.ServeHTTP(w, r)
 }
-
-// main exists only so `go build ./...` accepts this directory as a
-// package main locally; Vercel uses the Handler export instead.
-func main() {}
