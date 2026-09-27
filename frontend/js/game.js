@@ -361,6 +361,7 @@ async function renderBlurred(round) {
     list.hidden = true;
     busy = false;
     submitBtn.disabled = false;
+    skipBtn.disabled = false;
     updateSkipVisibility();
   }
 
