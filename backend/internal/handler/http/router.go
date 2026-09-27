@@ -39,6 +39,12 @@ func New(
 	adminH := NewAdminHandler(admin, loc)
 	cronH := NewCronHandler(runner, cronSecret, admin.Password())
 
+	// Health check (platform probes / deployment verification)
+	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"status":"ok"}`))
+	})
+
 	// Pool / auto-complete
 	mux.HandleFunc("GET /api/pool/titles", poolH.Titles)
 
