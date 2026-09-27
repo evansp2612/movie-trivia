@@ -1,5 +1,5 @@
 // Command api is the long-running server entry point (local Docker /
-// self-hosted): assembles the API stack via internal/app and serves it
+// self-hosted): assembles the API stack via pkg/app and serves it
 // with graceful shutdown. The Vercel adapter lives in api/index.go.
 package main
 
@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"movie-trivia/internal/app"
+	"movie-trivia/pkg/app"
 
 	"github.com/joho/godotenv"
 )

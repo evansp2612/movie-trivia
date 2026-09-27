@@ -15,7 +15,7 @@ import (
 	"net/http"
 	"sync"
 
-	"movie-trivia/internal/app"
+	"movie-trivia/pkg/app"
 )
 
 var (
