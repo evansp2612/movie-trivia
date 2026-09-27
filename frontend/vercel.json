@@ -1,0 +1,8 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "https://movie-trivia-app-api.vercel.app/api/$1"
+    }
+  ]
+}
