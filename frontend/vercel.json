@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/admin",
+      "destination": "/admin.html"
+    },
+    {
       "source": "/api/(.*)",
       "destination": "https://movie-trivia-app-api.vercel.app/api/$1"
     }
