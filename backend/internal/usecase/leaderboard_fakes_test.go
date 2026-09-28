@@ -25,6 +25,16 @@ func (f *fakeLeaderboardRepo) Top10(_ context.Context, gameDate string) ([]domai
 	return out, nil
 }
 
+func (f *fakeLeaderboardRepo) GetEntry(_ context.Context, gameDate, playerID string) (*domain.LeaderboardEntry, error) {
+	for i := range f.submitted {
+		e := f.submitted[i]
+		if e.GameDate == gameDate && e.PlayerID == playerID {
+			return &e, nil
+		}
+	}
+	return nil, domain.ErrNotFound
+}
+
 func (f *fakeLeaderboardRepo) HasSubmitted(_ context.Context, gameDate, playerID string) (bool, error) {
 	for _, e := range f.submitted {
 		if e.GameDate == gameDate && e.PlayerID == playerID {

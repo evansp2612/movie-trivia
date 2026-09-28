@@ -125,7 +125,10 @@ func (u *DailyUsecase) Answer(ctx context.Context, playerID string, n int, raw j
 	return s, &outcome, nil
 }
 
-// Result returns the final score for today's run.
+// Result returns the final score for today's run, the played day's
+// leaderboard, and the player's own submission (my_entry) when present —
+// the anchor for the end screen's highlight that survives duplicate
+// names from other players.
 func (u *DailyUsecase) Result(ctx context.Context, playerID string) (any, error) {
 	s, err := u.sessions.TodaySession(ctx, playerID, u.today())
 	if err != nil {
@@ -134,7 +137,24 @@ func (u *DailyUsecase) Result(ctx context.Context, playerID string) (any, error)
 	if !s.IsCompleted {
 		return nil, domain.ErrNotSubmitted
 	}
-	return map[string]any{"score": s.Score}, nil
+	board, err := u.leaderboard.Top10(ctx, s.GameDate)
+	if err != nil {
+		return nil, err
+	}
+	res := map[string]any{
+		"score":       s.Score,
+		"game_date":   s.GameDate,
+		"leaderboard": board,
+	}
+	if e, err := u.leaderboard.GetEntry(ctx, s.GameDate, playerID); err == nil {
+		res["submitted"] = true
+		res["my_entry"] = map[string]any{"name": e.Name, "score": e.Score, "player_id": e.PlayerID}
+	} else if err == domain.ErrNotFound {
+		res["submitted"] = false
+	} else {
+		return nil, err
+	}
+	return res, nil
 }
 
 // Status reports today's completion state for the player and whether

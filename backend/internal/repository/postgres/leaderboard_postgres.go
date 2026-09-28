@@ -43,6 +43,25 @@ func (r *LeaderboardRepo) Top10(ctx context.Context, gameDate string) ([]domain.
 	return out, rows.Err()
 }
 
+// GetEntry returns the player's own leaderboard entry for the given
+// game date, or domain.ErrNotFound.
+func (r *LeaderboardRepo) GetEntry(ctx context.Context, gameDate, playerID string) (*domain.LeaderboardEntry, error) {
+	var e domain.LeaderboardEntry
+	err := r.db.QueryRowContext(ctx,
+		`SELECT name, score FROM leaderboard_entries WHERE game_date=$1 AND player_id=$2`,
+		gameDate, playerID,
+	).Scan(&e.Name, &e.Score)
+	if err == sql.ErrNoRows {
+		return nil, domain.ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	e.GameDate = gameDate
+	e.PlayerID = playerID
+	return &e, nil
+}
+
 func (r *LeaderboardRepo) HasSubmitted(ctx context.Context, gameDate, playerID string) (bool, error) {
 	var one int
 	err := r.db.QueryRowContext(ctx,

@@ -49,6 +49,9 @@ type LeaderboardRepo interface {
 	Submit(ctx context.Context, e *domain.LeaderboardEntry) error
 	Top10(ctx context.Context, gameDate string) ([]domain.LeaderboardEntry, error)
 	HasSubmitted(ctx context.Context, gameDate, playerID string) (bool, error)
+	// GetEntry returns the player's own leaderboard entry for the given
+	// game date, or domain.ErrNotFound.
+	GetEntry(ctx context.Context, gameDate, playerID string) (*domain.LeaderboardEntry, error)
 }
 
 // PoolRepo is the durable mirror of the master pool in Postgres, used

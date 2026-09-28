@@ -31,13 +31,15 @@ export function renderEndScreen({ score, breakdown }) {
 }
 
 // Daily only (PRD: Free Play has no leaderboard): name input + one-shot
-// submission, then the ordered top-10 for today. serverScore is the
-// finished run's score from the result endpoint. alreadySubmitted comes
-// from the backend status — authoritative across tabs and devices. The
-// submitted name is kept locally only to highlight the player's row.
-async function renderLeaderboard(root, serverScore, alreadySubmitted) {
-  const state = readState("daily") || {};
-  let submittedName = state.submittedName || null;
+// submission, then the ordered top-10 of the played day. The board and
+// the player's own entry (my_entry: {name, score}, anchored by the
+// backend to player_id — survives duplicate names from other players)
+// come from the result response. A row is "mine" only when BOTH name
+// and score match my_entry.
+async function renderLeaderboard(root, result) {
+  let entries = result.leaderboard || [];
+  let myEntry = result.my_entry || null;
+  const alreadySubmitted = !!result.submitted;
 
   const section = document.createElement("div");
   section.className = "leaderboard";
@@ -60,10 +62,7 @@ async function renderLeaderboard(root, serverScore, alreadySubmitted) {
   confirm.className = "leaderboard__confirm";
   confirm.hidden = true;
 
-  function markSubmitted(name, message) {
-    submittedName = name;
-    state.submittedName = name;
-    writeState("daily", state);
+  function markSubmitted(message) {
     // The form and the big score step aside — the board is the focus.
     document.getElementById("final-score").hidden = true;
     document.getElementById("score-label").hidden = true;
@@ -87,13 +86,19 @@ async function renderLeaderboard(root, serverScore, alreadySubmitted) {
     input.disabled = true;
     try {
       await api.daily.submitLeaderboard(name);
-      markSubmitted(name, "Score submitted 🎉");
+      const res = await api.daily.result();
+      entries = res.leaderboard || [];
+      myEntry = res.my_entry || null;
+      markSubmitted("Score submitted 🎉");
       await refreshList();
     } catch (err) {
       if (/already submitted/i.test(err.message)) {
         // This player is already on the board (e.g. submitted from
-        // another tab) — show the board instead of the form.
-        markSubmitted(name, "Your score is already on the board.");
+        // another tab) — fetch it and show the board without the form.
+        const res = await api.daily.result();
+        entries = res.leaderboard || [];
+        myEntry = res.my_entry || null;
+        markSubmitted("Your score is already on the board.");
         await refreshList();
         return;
       }
@@ -134,11 +139,19 @@ async function renderLeaderboard(root, serverScore, alreadySubmitted) {
     return li;
   };
 
+  // Exact anchor: the player's own row is matched by player_id when the
+  // backend supplied one (my_entry), falling back to name+score — so a
+  // rival with the same name AND score can't steal the highlight.
+  const isMine = (e) =>
+    !!myEntry &&
+    !!e &&
+    (myEntry.player_id
+      ? e.player_id === myEntry.player_id
+      : e.name === myEntry.name && e.score === myEntry.score);
+
   async function refreshList() {
-    const status = await api.daily.status();
     list.innerHTML = "";
-    const entries = status.leaderboard || [];
-    if (entries.length === 0 && !submittedName) {
+    if (entries.length === 0 && !myEntry) {
       const li = document.createElement("li");
       li.className = "leaderboard__empty";
       li.textContent = "No submissions yet — be the first!";
@@ -159,8 +172,7 @@ async function renderLeaderboard(root, serverScore, alreadySubmitted) {
         list.appendChild(li);
         continue;
       }
-      const mine = submittedName && e.name.toLowerCase() === submittedName.toLowerCase();
-      if (mine) {
+      if (isMine(e)) {
         mineOnBoard = true;
         li.classList.add("me");
       }
@@ -172,9 +184,8 @@ async function renderLeaderboard(root, serverScore, alreadySubmitted) {
     }
     // Player submitted but is ranked below the visible top 10: append
     // their entry after the 10th row, without a rank number.
-    if (submittedName && !mineOnBoard) {
-      const mine = entries.find((e) => e.name.toLowerCase() === submittedName.toLowerCase());
-      list.appendChild(ownRow(mine ?? { name: submittedName, score: serverScore }));
+    if (myEntry && !mineOnBoard) {
+      list.appendChild(ownRow(myEntry));
     }
   }
 
@@ -185,14 +196,11 @@ async function renderLeaderboard(root, serverScore, alreadySubmitted) {
   root.appendChild(section);
   await refreshList();
 
-  // Reopening the board after submitting (backend flag, or a name this
-  // browser submitted earlier): the form and the big score step aside
-  // immediately — the board is all that's left to show.
-  if (alreadySubmitted && !submittedName) {
-    submittedName = "You";
-  }
-  if (alreadySubmitted || submittedName) {
-    markSubmitted(submittedName, "Your score is already on the board.");
+  // Reopening the board after submitting (backend submitted flag): the
+  // form and the big score step aside immediately — the board is all
+  // that's left to show. my_entry drives the highlight.
+  if (alreadySubmitted) {
+    markSubmitted("Your score is already on the board.");
   }
 }
 
@@ -226,10 +234,9 @@ export async function showEnd() {
   const fallbackScore = Number(game.score || 0);
   try {
     if (m === "daily") {
-      const status = await api.daily.status();
       const res = await api.daily.result();
       renderEndScreen(res);
-      await renderLeaderboard(root, res.score, status.submitted);
+      await renderLeaderboard(root, res);
     } else {
       const res = await api.freeplay.result(game.session);
       renderEndScreen(res);
