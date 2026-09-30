@@ -32,13 +32,19 @@ function clearStaleDailyState() {
 }
 
 async function loadStatus() {
-  setDailyCompleted(serverCompleted);
+  // Spinner while checking — never paint "Game of the Day" first and
+  // flash to "Leaderboard" when the status says otherwise.
+  setDailyLoading(true);
   try {
     const status = await api.daily.status();
     clearStaleDailyState();
     setDailyCompleted(status.is_completed);
     meta.textContent = "";
   } catch (err) {
+    // Offline: keep the button playable as a plain GOTD start.
+    setDailyLoading(false);
+    dailyBtn.disabled = false;
+    dailyBtn.querySelector(".btn__label").textContent = "Game of the Day";
     meta.textContent = "Could not reach the server.";
     console.error(err);
   }
@@ -146,7 +152,6 @@ freeplayBtn.addEventListener("click", async () => {
 // Returning from a game or the leaderboard (✕ or back link): re-enable
 // the start buttons and refresh the daily status / button label.
 window.addEventListener("game:exit", () => {
-  setDailyLoading(false);
   dailyBtn.disabled = false;
   freeplayBtn.disabled = false;
   loadStatus();
