@@ -2,7 +2,9 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -16,6 +18,9 @@ type Config struct {
 	Port           string
 	AllowedOrigin  string
 	PoolRefreshLoc *time.Location
+	// PoolPages is how many pages of each TMDB discover set feed the
+	// master pool — the pool's size knob (~20 movies × sets × pages).
+	PoolPages int
 }
 
 // Load reads configuration from the environment. TMDB_API_KEY and
@@ -43,6 +48,15 @@ func Load() (*Config, error) {
 	}
 	cfg.PoolRefreshLoc = loc
 
+	pages, err := getenvInt("TMDB_POOL_PAGES", 6)
+	if err != nil {
+		return nil, err
+	}
+	if pages < 1 || pages > 20 {
+		return nil, fmt.Errorf("config: TMDB_POOL_PAGES must be between 1 and 20, got %d", pages)
+	}
+	cfg.PoolPages = pages
+
 	return cfg, nil
 }
 
@@ -51,4 +65,18 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// getenvInt parses an integer env var; unset → fallback, unparsable →
+// error (fail fast like POOL_REFRESH_TZ).
+func getenvInt(key string, fallback int) (int, error) {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return 0, fmt.Errorf("config: %s must be an integer, got %q", key, v)
+	}
+	return n, nil
 }

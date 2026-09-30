@@ -69,7 +69,7 @@ func Build(ctx context.Context) *App {
 	dailyLock := rediscache.NewDailyLock(rdb)
 
 	// External API clients
-	tmdbClient := tmdb.NewClient(cfg.TMDBAPIKey)
+	tmdbClient := tmdb.NewClient(cfg.TMDBAPIKey, cfg.PoolPages)
 	omdbClient := omdb.NewClient(cfg.OMDBAPIKey)
 
 	// Usecases

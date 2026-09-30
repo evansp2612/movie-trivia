@@ -14,10 +14,6 @@ import (
 )
 
 const (
-	// MaxPoolSize caps the unified master pool at 160 unique movies —
-	// a raw candidate store: movies with missing ratings or textless
-	// posters are included, and BuildRounds filters per round type.
-	MaxPoolSize = 160
 	// refreshWorkers is the bounded concurrency for per-movie detail
 	// fetches (external_ids, OMDb rating, images).
 	refreshWorkers = 8
@@ -93,7 +89,8 @@ func (u *PoolUsecase) Candidates(ctx context.Context) ([]domain.Movie, error) {
 }
 
 // Refresh regenerates the unified master pool: TMDB popular + top_rated
-// (pages 1-4, English only, deduped by tmdb_id), then per-movie details
+// (pages 1-6 per set, English only, deduped by tmdb_id — every unique
+// candidate is kept), then per-movie details
 // (IMDb rating via OMDb, textless poster via TMDB images) fetched by a
 // bounded worker pool. Movies are kept even when details fail (zero
 // values) — BuildRounds filters by round-type suitability. Output
@@ -107,8 +104,8 @@ func (u *PoolUsecase) Refresh(ctx context.Context) ([]domain.Movie, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pool: fetch candidates: %w", err)
 	}
-	if len(candidates) > MaxPoolSize {
-		candidates = candidates[:MaxPoolSize]
+	if len(candidates) == 0 {
+		return nil, domain.ErrPoolEmpty
 	}
 
 	lim := newLimiter(tmdbRateLimit)
@@ -155,10 +152,6 @@ func (u *PoolUsecase) Refresh(ctx context.Context) ([]domain.Movie, error) {
 	if errCount > 0 {
 		log.Printf("pool: %d/%d movies have degraded details (no rating and/or textless poster)", errCount, len(movies))
 	}
-	if len(movies) < MaxPoolSize {
-		log.Printf("pool: %d/%d candidates kept this cycle", len(movies), MaxPoolSize)
-	}
-
 	if err := u.cache.Set(ctx, movies); err != nil {
 		return nil, fmt.Errorf("pool: cache batch: %w", err)
 	}

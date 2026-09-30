@@ -13,14 +13,17 @@ import (
 const baseURL = "https://api.themoviedb.org/3"
 
 type Client struct {
-	apiKey string
-	v4     bool
-	http   *http.Client
+	apiKey    string
+	v4        bool
+	poolPages int
+	http      *http.Client
 }
 
-func NewClient(apiKey string) *Client {
+// NewClient takes poolPages: how many pages of each discover set feed
+// the candidate pool (the pool's size knob — see FetchPool).
+func NewClient(apiKey string, poolPages int) *Client {
 	v4 := len(apiKey) > 60 && len(apiKey) >= 2 && apiKey[:2] == "ey"
-	return &Client{apiKey: apiKey, v4: v4, http: &http.Client{Timeout: 15 * time.Second}}
+	return &Client{apiKey: apiKey, v4: v4, poolPages: poolPages, http: &http.Client{Timeout: 15 * time.Second}}
 }
 
 type Movie struct {
@@ -35,45 +38,41 @@ type pagedResponse struct {
 	Results []Movie `json:"results"`
 }
 
-// poolPages is how many pages of each discover set feed the candidate
-// pool. Two discover queries — popularity-ranked and rating-ranked —
-// are interleaved for variety, giving up to ~240 unique candidates.
-const poolPages = 6
+// The pool's discover queries share one filter and differ only in
+// sort order: with_original_language=en is TMDB's authoritative
+// production-language filter, vote_count.gte=500 keeps both sets to
+// movies with meaningful votes (excludes brand-new releases with
+// incomplete metadata), and adult content is excluded.
+const discoverFilter = "with_original_language=en&vote_count.gte=500&include_adult=false"
 
-// discoverSets are the two sorted discover queries that feed the pool.
-// with_original_language=en is TMDB's authoritative production-language
-// filter; vote_count.gte=500 keeps the rating-ranked set to movies with
-// meaningful votes.
-var discoverSets = []string{
-	"with_original_language=en&sort_by=popularity.desc",
-	"with_original_language=en&sort_by=vote_average.desc&vote_count.gte=500",
-}
+var discoverSorts = []string{"popularity.desc", "vote_average.desc"}
 
-// FetchPool queries /discover/movie (pages 1-6 per set, English-language
-// movies only, filter applied server-side by TMDB). The two sets are
-// fetched concurrently and their results interleaved so both sources
+// FetchPool queries /discover/movie (c.poolPages pages per sort set,
+// filter applied server-side by TMDB). The two sets are fetched
+// concurrently and their results interleaved so both sources
 // contribute evenly to the pool.
 func (c *Client) FetchPool(ctx context.Context) ([]Movie, error) {
-	perSet := make([][]Movie, len(discoverSets))
+	perSet := make([][]Movie, len(discoverSorts))
 	var wg sync.WaitGroup
-	errs := make([]error, len(discoverSets))
+	errs := make([]error, len(discoverSorts))
 
-	for si, extra := range discoverSets {
+	for si, sortBy := range discoverSorts {
 		wg.Add(1)
-		go func(si int, extra string) {
+		go func(si int, sortBy string) {
 			defer wg.Done()
 			var out []Movie
-			for page := 1; page <= poolPages; page++ {
+			for page := 1; page <= c.poolPages; page++ {
 				var res pagedResponse
-				url := fmt.Sprintf("%s/discover/movie?page=%d&%s&include_adult=false", baseURL, page, extra)
+				url := fmt.Sprintf("%s/discover/movie?page=%d&sort_by=%s&%s",
+					baseURL, page, sortBy, discoverFilter)
 				if err := c.get(ctx, url, &res); err != nil {
-					errs[si] = fmt.Errorf("tmdb: discover[%s] page %d: %w", extra, page, err)
+					errs[si] = fmt.Errorf("tmdb: discover[%s] page %d: %w", sortBy, page, err)
 					return
 				}
 				out = append(out, res.Results...)
 			}
 			perSet[si] = out
-		}(si, extra)
+		}(si, sortBy)
 	}
 	wg.Wait()
 	for _, err := range errs {
@@ -85,7 +84,7 @@ func (c *Client) FetchPool(ctx context.Context) ([]Movie, error) {
 	// Round-robin interleave the two sets, deduping by TMDB ID.
 	var out []Movie
 	seen := map[int]bool{}
-	for i := 0; i < poolPages*20; i++ {
+	for i := 0; i < c.poolPages*20; i++ {
 		for _, set := range perSet {
 			if i < len(set) {
 				m := set[i]
